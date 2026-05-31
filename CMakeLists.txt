@@ -43,6 +43,8 @@ if(NOT Kokkos_FOUND)
     FetchContent_MakeAvailable(kokkos)
 endif()
 
+find_package(HDF5 REQUIRED COMPONENTS CXX)
+
 enable_testing()
 
 add_subdirectory(src)
