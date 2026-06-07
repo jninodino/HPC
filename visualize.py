@@ -39,7 +39,7 @@ def update(frame):
     return (im,)
 
 
-ani = FuncAnimation(fig, update, frames=steps, interval=150, blit=True, repeat=True)
+ani = FuncAnimation(fig, update, frames=steps, interval=300, blit=True, repeat=True)
 
 plt.tight_layout()
 plt.show()

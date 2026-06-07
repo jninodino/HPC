@@ -11,7 +11,7 @@
 
 
 
-void save_density_to_file(Kokkos::View<int***> pdf, Kokkos::View<int**> density,
+void save_density_to_file(Kokkos::View<float***> pdf, Kokkos::View<float**> density,
                           int width, int height, int VELO_DIM, int step, int steps, const std::string& filename) {
 	(void)VELO_DIM;
 
@@ -55,26 +55,35 @@ int main(int argc, char *argv[]) {
 	Kokkos::initialize(Kokkos::InitializationSettings().set_device_id(-1));
 	{
     	// Constant parameters
-    	int width = 60;
-    	int height = 40;
+		int dim = 99;
+    	int width = dim;
+    	int height = dim;
     	int delta_t = 1;
+		float tau = 1.0f;
 
 		int steps = 100;
 
 		// Data structures
-		Kokkos::View<int**> density("density", width, height);
-		Kokkos::View<int***> velocity("velocity", width, height, 2);
-		Kokkos::View<int***> pdf("distribution", width, height, VELO_DIM);
+		Kokkos::View<float**> density("density", width, height);
+		Kokkos::View<float***> velocity("velocity", width, height, 2);
+		Kokkos::View<float***> pdf("distribution", width, height, VELO_DIM);
 
 
 		// Initialize probabilty density function
 		Kokkos::deep_copy(pdf, 0);
-		pdf(12, 1, 1) = 1;
-		pdf(1, 6, 5) = 1;
+		for (int x=0; x < width; x++) {
+			for (int y=0; y < height; y++) {
+				pdf(x, y, 0) = 1.0;
+			}
+		}
+		for (int i=1; i<9; i++) {
+			pdf(width / 2, height / 2, i) = 100.0f;
+		}
+
 
 		for (int step=0; step<steps; step++) {
 			save_density_to_file(pdf, density, width, height, VELO_DIM, step, 100, "output.bin");
-			streaming(pdf, density, velocity, width, height);			
+			streaming(pdf, density, velocity, width, height, tau);			
 		}
 
 		
