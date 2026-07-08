@@ -1,27 +1,59 @@
+import glob
+import re
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
-nx, ny = 15, 10
-step = range(31)
 
-fig, ax = plt.subplots()
+def get_step(filename):
+    return int(re.search(r"output_(\d+)\.csv", filename).group(1))
 
-def update(step):
-    ax.clear()
-    df = pd.read_csv(f"output_{step}.csv")
 
-    X = df["x"].values.reshape(nx, ny)
-    Y = df["y"].values.reshape(nx, ny)
-    U = df["ux"].values.reshape(nx, ny)
-    V = df["uy"].values.reshape(nx, ny)
+files = sorted(glob.glob("output_*.csv"), key=get_step)
 
-    ax.quiver(X, Y, U, V)
-    ax.set_xlim(-0.5, nx - 0.5)
-    ax.set_ylim(-0.5, ny - 0.5)
-    ax.set_title(f"Velocity field, step{step}")
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
+if not files:
+    raise FileNotFoundError("No output_*.csv files found")
 
-ani = FuncAnimation(fig, update, frames=steps, interval=300)
-ani.save("velocity_animation.gif", writer="pillow")
+fig, ax = plt.subplots(figsize=(6, 5))
+
+first = pd.read_csv(files[0])
+rho0 = first.pivot(index="y", columns="x", values="rho").values
+
+im = ax.imshow(
+    rho0,
+    origin="lower",
+    aspect="equal",
+    cmap="viridis",
+    vmin=0.98,
+    vmax=1.10,
+)
+
+cbar = fig.colorbar(im, ax=ax)
+cbar.set_label("Density rho")
+
+ax.set_xlabel("x")
+ax.set_ylabel("y")
+title = ax.set_title(f"Density wave, step {get_step(files[0])}")
+
+
+def update(i):
+    df = pd.read_csv(files[i])
+    rho = df.pivot(index="y", columns="x", values="rho").values
+
+    im.set_array(rho)
+    title.set_text(f"Density wave, step {get_step(files[i])}")
+    return im, title
+
+
+ani = FuncAnimation(
+    fig,
+    update,
+    frames=len(files),
+    interval=250,
+    blit=False,
+    repeat=True,
+)
+
+plt.tight_layout()
+ani.save("density_wave.gif", writer="pillow", fps=4)
+plt.show()

@@ -51,6 +51,7 @@ void init_cavity(View3D f, int local_nx) {
 
     Kokkos::deep_copy(f, h_f);
 }
+
 void calc_density(View3D f, View2D rho, int local_nx) {
     Kokkos::parallel_for(
         "calc_density",
@@ -153,8 +154,8 @@ void calc_velocity(View3D f, View2D rho, View2D ux, View2D uy, int local_nx) {
         });
 }
 
-void streaming(View3D f, View3D f_new, int local_nx) {
-    double u_lid = 0.1;
+void streaming(View3D f, View3D f_new, int local_nx, int rank, int size) {
+    double u_lid = 0.0;
 
     Kokkos::parallel_for(
         "streaming",
@@ -165,13 +166,23 @@ void streaming(View3D f, View3D f_new, int local_nx) {
                 int y_from = y - cy[j];
 
                 if (y_from < 0) {
+                    // bottom wall: no-slip bounce-back
                     f_new(x, y, j) = f(x, y, opposite[j]);
                 } else if (y_from >= ny) {
+                    // moving top wall: lid-driven cavity
                     double rho_wall = 1.0;
 
                     f_new(x, y, j) = f(x, y, opposite[j]) +
                                      6.0 * w[j] * rho_wall * cx[j] * u_lid;
-                } else {
+                } else if (rank == 0 && x_from < 1) {
+                    // left physical wall
+                    f_new(x, y, j) = f(x, y, opposite[j]);
+                } else if (rank == size - 1 && x_from > local_nx) {
+                    // right physical wall
+                    f_new(x, y, j) = f(x, y, opposite[j]);
+                }
+                else {
+                    // normal streaming
                     f_new(x, y, j) = f(x_from, y_from, j);
                 }
             }
@@ -241,8 +252,9 @@ double measure_amplitude(View2D ux, int local_nx) {
 void ghostCells(View3D f, int local_nx, int rank, int size) {
     auto h_f = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), f);
 
-    int left = (rank - 1 + size) % size;
-    int right = (rank + 1) % size;
+    // left and right are now real walls...and x is no longer periodical
+    int left = (rank == 0) ? MPI_PROC_NULL : rank -1;
+    int right = (rank == size - 1) ? MPI_PROC_NULL : rank + 1;
 
     const int count = ny * q;
 
@@ -269,6 +281,46 @@ void ghostCells(View3D f, int local_nx, int rank, int size) {
             h_f(local_nx + 1, y, j) = recRight[y * q + j];
         }
     }
+    Kokkos::deep_copy(f, h_f);
+}
+
+void init_density_wave(View3D f, int local_nx, int rank) {
+    Kokkos::deep_copy(f, 0.0);
+
+    auto h_f = Kokkos::create_mirror_view(f);
+
+    const double rho0 = 1.0;
+    const double amplitude = 0.1;
+    const int radius = 5;
+
+    const int global_nx = local_nx; 
+    const int cx0 = global_nx / 2;
+    const int cy0 = ny / 2;
+
+    for (int x = 1; x <= local_nx; ++x) {
+        for (int y = 0; y < ny; ++y) {
+            double rho = rho0;
+            double ux = 0.0;
+            double uy = 0.0;
+
+            int dx = x - cx0;
+            int dy = y - cy0;
+
+            if (dx * dx + dy * dy <= radius * radius) {
+                rho = rho0 + amplitude;
+            }
+
+            double u2 = ux * ux + uy * uy;
+
+            for (int j = 0; j < q; ++j) {
+                double cu = cx[j] * ux + cy[j] * uy;
+                h_f(x, y, j) =
+                    w[j] * rho *
+                    (1.0 + 3.0 * cu + 4.5 * cu * cu - 1.5 * u2);
+            }
+        }
+    }
+
     Kokkos::deep_copy(f, h_f);
 }
 
@@ -303,7 +355,7 @@ int main(int argc, char *argv[]) {
             omega = std::stod(argv[1]);
         }
 
-        init_cavity(f, local_nx);
+        init_density_wave(f, local_nx, rank);
         Kokkos::fence();
 
         double change = 0.0;
@@ -351,10 +403,14 @@ int main(int argc, char *argv[]) {
                           << ", mass = " << global_mass << ", kinetic_energy = " << global_ke << "\n";
             }
 
+            if (step % 50 == 0 && rank == 0) {
+                write_fields(rho, ux, uy, step, local_nx);
+            }
+
             collision(f, rho, ux, uy, omega, local_nx);
 
             ghostCells(f, local_nx, rank, size);
-            streaming(f, f_new, local_nx);
+            streaming(f, f_new, local_nx, rank, size);
             std::swap(f, f_new);
             executed_steps = step + 1;
         }
