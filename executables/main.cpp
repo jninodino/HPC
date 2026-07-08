@@ -10,7 +10,6 @@
 using View3D = Kokkos::View<double ***>;
 using View2D = Kokkos::View<double **>;
 
-const int nx = 512;
 const int ny = 128;
 const int q = 9;
 
@@ -66,18 +65,17 @@ void calc_density(View3D f, View2D rho, int local_nx) {
         });
 }
 
-double total_mass(View3D f) {
+double total_mass(View3D f, int local_nx)
+{
     auto h_f = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), f);
 
     double mass = 0.0;
 
-    for (int x = 0; x < nx; ++x) {
-        for (int y = 0; y < ny; ++y) {
-            for (int j = 0; j < q; ++j) {
+    for (int x = 1; x <= local_nx; ++x)
+        for (int y = 0; y < ny; ++y)
+            for (int j = 0; j < q; ++j)
                 mass += h_f(x, y, j);
-            }
-        }
-    }
+
     return mass;
 }
 
@@ -180,7 +178,7 @@ void streaming(View3D f, View3D f_new, int local_nx) {
         });
 }
 
-void write_fields(View2D rho, View2D ux, View2D uy, int step) {
+void write_fields(View2D rho, View2D ux, View2D uy, int step, int local_nx) {
     auto h_rho = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), rho);
     auto h_ux = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), ux);
     auto h_uy = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), uy);
@@ -190,7 +188,7 @@ void write_fields(View2D rho, View2D ux, View2D uy, int step) {
 
     file << "x,y,rho,ux,uy\n";
 
-    for (int x = 0; x < nx; ++x) {
+    for (int x = 0; x < local_nx; ++x) {
         for (int y = 0; y < ny; ++y) {
             file << x << "," << y << "," << h_rho(x, y) << "," << h_ux(x, y)
                  << "," << h_uy(x, y) << "\n";
@@ -219,7 +217,7 @@ void collision(View3D f, View2D rho, View2D ux, View2D uy, double omega,
         });
 }
 
-double measure_amplitude(View2D ux) {
+double measure_amplitude(View2D ux, int local_nx) {
     auto h_ux = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace(), ux);
 
     double sin_sum = 0.0;
@@ -229,10 +227,10 @@ double measure_amplitude(View2D ux) {
         double s = std::sin(2.0 * M_PI * y / ny);
         double ux_avg = 0.0;
 
-        for (int x = 0; x < nx; ++x) {
+        for (int x = 0; x < local_nx; ++x) {
             ux_avg += h_ux(x, y);
         }
-        ux_avg /= nx;
+        ux_avg /= local_nx;
 
         sin_sum += ux_avg * s;
         norm += s * s;
@@ -275,15 +273,17 @@ void ghostCells(View3D f, int local_nx, int rank, int size) {
 }
 
 int main(int argc, char *argv[]) {
+    std::cout << "it compiles!\n";
     MPI_Init(&argc, &argv);
 
     int rank, size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
+    const int local_nx = 128;
+    const int nx = local_nx * size;
 
     Kokkos::initialize(argc, argv);
     {
-        int local_nx = nx / size;
         View3D f("f", local_nx + 2, ny, q);
         View3D f_new("f_new", local_nx + 2, ny, q);
 
@@ -333,6 +333,9 @@ int main(int argc, char *argv[]) {
             Kokkos::deep_copy(uy_old, uy);
 
             if (step % 1000 == 0) {
+                double local = total_mass(f, local_nx);
+                double global;
+                MPI_Allreduce(&local, &global, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
                 double lm = local_mass(rho, local_nx);
                 
                 MPI_Allreduce(&lm, &global_mass, 1, MPI_DOUBLE, MPI_SUM,
@@ -367,7 +370,7 @@ int main(int argc, char *argv[]) {
             std::cout << "Runtime: " << seconds << " s\n";
             std::cout << "Steps: " << executed_steps << "\n";
             std::cout << "Performance: " << mlups << " MLUPS\n";
-            // write_fields(rho, ux, uy, executed_steps);
+            // write_fields(rho, ux, uy, executed_steps, local_nx);
         }
     }
     Kokkos::finalize();

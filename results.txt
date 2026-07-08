@@ -1,0 +1,35 @@
+
+
+Strong scaling
+
+    | Processes   |   Time      |   MLUPS
+    |-------------|-------------|-----------|  
+    |    1        | 1222.21     |  1.29736  |
+    |    2        | 631.17s     |  2.51223  |
+    |    4        | 323.319s    |  4.90427  |
+    |    8        | 182.126     |  8.70632  |
+    |    12       | 191.259s    |  8.29058  | möglicher grund für fehlenden speedup: keine gute teilbarkeit der grid grösse durch 12...
+    |    16       | 158.159     |  10.0233  |
+    |    24       | 106.479     |  14.8916  |
+
+
+
+Weak scaling
+
+| MPI Processes | Global Grid Size (nx × ny) | Total Mass | Runtime (s) | Performance (MLUPS) |
+| ------------: | -------------------------: | ---------: | ----------: | ------------------: |
+|             1 |                  128 × 128 |     16,384 |     364.719 |             1.08689 |
+|             2 |                  256 × 128 |     32,768 |     385.792 |             2.05505 |
+|             4 |                  512 × 128 |     65,536 |     437.377 |             3.62535 |
+|             8 |                 1024 × 128 |    131,072 |     534.994 |             5.92771 |
+|            16 |                 2048 × 128 |    262,144 |     622.826 |            10.18350 |
+|            24 |                 3072 × 128 |    393,216 |     642.534 |            14.80680 |
+
+
+### Weak Scaling Results
+
+For the weak scaling experiments, the local problem size was kept constant at **128 × 128 lattice cells per MPI process**, while the global domain size increased proportionally with the number of processes. Consequently, the total mass increased linearly with the number of MPI ranks, confirming that the weak scaling setup was implemented correctly.
+
+The measured runtime increased from approximately **365 s** for one process to **643 s** for 24 processes. Ideally, the runtime would remain constant in a perfect weak scaling scenario. The observed increase is mainly caused by the growing communication overhead between MPI processes and the use of **oversubscription**, where more MPI processes were executed than available physical CPU cores.
+
+Despite the increased runtime, the computational performance improved significantly, with the achieved throughput increasing from **1.09 MLUPS** on one process to **14.81 MLUPS** on 24 processes. Overall, the results demonstrate good weak scaling behavior, although communication costs and hardware limitations reduce the ideal scaling efficiency.
