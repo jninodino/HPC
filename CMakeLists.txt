@@ -31,15 +31,20 @@ if(NOT Eigen3_FOUND)
     endif()
 endif()
 
-find_package(Kokkos 4.7.03)
+find_package(Kokkos 4.7.03 EXACT)
 if(NOT Kokkos_FOUND)
     include(FetchContent)
     FetchContent_Declare(
-      kokkos
-      URL https://github.com/kokkos/kokkos/archive/refs/tags/4.7.03.tar.gz
+        kokkos
+        URL https://github.com/kokkos/kokkos/archive/refs/tags/4.7.03.tar.gz
     )
     set(Kokkos_ENABLE_TESTS OFF CACHE BOOL "Disable Kokkos tests" FORCE)
     set(Kokkos_ENABLE_EXAMPLES OFF CACHE BOOL "Disable Kokkos examples" FORCE)
+
+    set(Kokkos_ENABLE_CUDA OFF CACHE BOOL "Disable CUDA backend" FORCE)
+    set(Kokkos_ENABLE_SERIAL ON CACHE BOOL "Enable Serial backend" FORCE)
+    set(Kokkos_ENABLE_THREADS ON CACHE BOOL "Enable Threads backend" FORCE)
+
     FetchContent_MakeAvailable(kokkos)
 endif()
 

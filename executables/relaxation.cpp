@@ -11,6 +11,7 @@
 #include <numbers>
 #include <chrono>
 
+// This file works currently only on one thread!
 
 int main(int argc, char *argv[]) {
 	// Initialize MPI
@@ -25,14 +26,15 @@ int main(int argc, char *argv[]) {
 	Kokkos::initialize(Kokkos::InitializationSettings().set_device_id(-1));
 	{
     	// Constant parameters
-    	int width = 9;
-    	int height =  6;
-		scalar_t omega = 1.7L;
+    	int width = 100;
+    	int height = 100;
+		scalar_t omega = 0.0;
 
-		int steps = 10;
+		int steps = 200;
 
 		if (width % size != 0) {
-			std::cout << "Width must be a multiple of size got: " << width << " and " << size << std::endl;
+			std::cout << "Width must be a multiple of size got: " << width <<
+			 " and " << size << std::endl;
 			return 1;
 		}
 
@@ -45,17 +47,20 @@ int main(int argc, char *argv[]) {
 		field3_t f("f", local_width, height, v_dim);
 		field3_t post_f("post_f", local_width, height, v_dim);
 
-		double total_mass = 0.0L;
-		double total_kin_energy = 0.0L;
+		for (int i = 0; i < v_dim; i++) {
+			f(local_width / 2, height / 2, i) = 0.1;
+		}
+
 
 		for (int step=0; step<steps; step++) {
-			share_ghost_cells(f, local_width, height, rank, size);
+			if (size > 1) {
+				share_ghost_cells(f, local_width, height, rank, size);
+			}
 			calc_collision(f, post_f, density, velocity, local_width, 
 				height, omega);
 			streaming(f, post_f, local_width, height, rank, size);
-			calc_total_mass(total_mass, density, local_width, height);
-			calc_total_kin_energy(total_kin_energy, velocity, density, width,
-				height);
+			save_density(density, local_width, height, step, steps, 
+				"data/relaxation_density.bin");
 		}
 
 	}
