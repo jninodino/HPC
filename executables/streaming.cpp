@@ -26,11 +26,11 @@ int main(int argc, char *argv[]) {
 	Kokkos::initialize(Kokkos::InitializationSettings().set_device_id(-1));
 	{
     	// Constant parameters
-    	int width = 100;
-    	int height = 100;
-		scalar_t omega = 1.9;
+    	int width = 15;
+    	int height = 10;
+		scalar_t omega = 0.0;
 
-		int steps = 61;
+		int steps = 30;
 
 		if (width % size != 0) {
 			std::cout << "Width must be a multiple of size got: " << width <<
@@ -47,39 +47,32 @@ int main(int argc, char *argv[]) {
 		field3_t f("f", local_width, height, v_dim);
 		field3_t post_f("post_f", local_width, height, v_dim);
 
-
-		// Uniform equilibrium background: rho = 1, u = 0 everywhere
-		for (int x = 1; x < local_width - 1; x++) {
-			for (int y = 0; y < height; y++) {
-				density(x, y) = 0.1;
-				velocity(x, y, 0) = 0.0;
-				velocity(x, y, 1) = 0.0;
-				for (int i = 0; i < v_dim; i++) {
-					f(x, y, i) = calc_f_eq(density, velocity, x, y, i);
-				}
-			}
-		}
-
-		// Small density bump at the center
-		int cx0 = local_width / 2;
-		int cy0 = height / 2;
-		density(cx0, cy0) = 0.9;
-
-		for (int i = 0; i < v_dim; i++) {
-			f(cx0, cy0, i) = calc_f_eq(density, velocity, cx0, cy0, i);
-		}
+		// Initial single non-zero blob in the center of the map
+		f(local_width / 2, height / 2, 2) = 1;
 
 
+
+		// Mass check
+		double mass_t_new = 0.0;
+		double mass_t = 0.0;
 
 		for (int step=0; step<steps; step++) {
+			execute_time_step(f, post_f, density, velocity, local_width, height, 
+				omega, rank, size);
 
-			calc_collision(f, post_f, density, velocity, local_width, 
-				height, omega);
-			streaming(f, post_f, local_width, height, rank, size);
-
-			save_density(density, local_width, height, step, steps, 
-				"data/relaxation_density.bin");
+			// Check if total mass is constant
+			calc_total_mass(mass_t_new, density, local_width, height);
+			if (mass_t != mass_t_new && step != 0) {
+				std::cout << "Mass conversation is not given in step: " <<
+					step <<  " , mass changed from value " << total_mass <<
+					" to " << mass_t_new << std::endl;
 			}
+			mass_t = mass_t_new;
+			
+			// Store density data
+			save_density(density, local_width, height, step, steps, 
+				"data/streaming_density.bin");
+		}
 
 	}
 	// Finalize MPI and Kokkos

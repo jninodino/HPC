@@ -9,7 +9,6 @@ using field_t = Kokkos::View<scalar_t*>;
 using field2_t = Kokkos::View<scalar_t**>;
 using field3_t = Kokkos::View<scalar_t***>;
 
-Kokkos::View<double***> = f("f", width, height, v_dim);
 
 // Number of velocity directions in lattice boltzmann
 inline constexpr int v_dim = 9;
@@ -82,5 +81,9 @@ void calc_total_mass(double total_mass, field2_t density, int width, int height)
 // Calculate total kinetic energy over complete domain
 void calc_total_kin_energy(double total_kin_energy, field3_t velocity,
 	field2_t density, int width, int height);
+
+// Run one timestep of lattice boltzman simulation
+void execute_time_step(field3_t f, field3_t post_f, field2_t density, 
+	field3_t velocity, int width, int height, scalar_t omega, int rank, int size);
 
 scalar_t total_mass(field3_t f, int width, int height);

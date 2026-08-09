@@ -15,6 +15,7 @@ scalar_t W[9] = {D4_9, D1_9, D1_9, D1_9, D1_9, D1_36, D1_36, D1_36, D1_36};
 scalar_t c_s = 0.5777L;
 
 
+// Remove?
 scalar_t total_mass(field3_t f, int width, int height) {
 	scalar_t mass = 0.0;
 	for (int w = 0; w < width; w++) {
@@ -70,8 +71,10 @@ scalar_t calc_f_eq(field2_t density,
 				 int i
 				) {
 	scalar_t c_times_u = cx(i) * velocity(x, y, 0) + cy(i) * velocity(x, y, 1);
-	scalar_t v_abs_square = square(velocity(x, y, 0)) + square(velocity(x, y, 1));
-	scalar_t fi_eq = W[i] * density(x, y) * (1.0L + 3.0L * c_times_u + 4.5L * square(c_times_u) - 1.5L * v_abs_square);
+	scalar_t v_abs_square = square(velocity(x, y, 0)) + 
+		square(velocity(x, y, 1));
+	scalar_t fi_eq = W[i] * density(x, y) * (1.0L + 3.0L * c_times_u + 4.5L *
+		square(c_times_u) - 1.5L * v_abs_square);
 	return fi_eq;
 }
 
@@ -112,6 +115,7 @@ void calc_collision(field3_t f,
 			} else {
 				post_f(x, y, i) = f(x, y, i);
 			}
+
 		}
 	);
 }
@@ -225,23 +229,6 @@ void handle_boundary(field3_t f,
 	}
 }
 
-void streaming(field3_t f, field3_t post_f, int width, int height){
-	Kokkos::parallel_for("update_f", Kokkos::MDRangePolicy<Kokkos::Rank<3>>({1, 0, 0}, {width - 1, height, v_dim}),
-		KOKKOS_LAMBDA(const int x, const int y, const int i) {
-			
-			if (is_boundery(x, y, i, width, height)) {
-				handle_boundary(f, post_f, x, y, i, width, height, rank, size);
-			} else {
-				int x_next = x + cx(i);
-				int y_next = y + cy(i);
-				f(x_next, y_next, i) = post_f(x, y, i);
-			}
-		}
-	);
-	Kokkos::fence();
-}
-
-
 void streaming(field3_t f, field3_t post_f, int width, int height,
 			   int rank,
 			   int size
@@ -331,3 +318,14 @@ void calc_total_kin_energy(double total_kin_energy, field3_t velocity,
 
 	MPI_Reduce(&local_energy, &total_kin_energy, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
 }
+
+void execute_time_step(field3_t f, field3_t post_f, field2_t density, 
+	field3_t velocity, int width, int height, scalar_t omega, int rank, int size)
+	{
+		if (size > 1) {
+			share_ghost_cells(f, width, height, rank, size);
+		}
+		calc_collision(f, post_f, density, velocity, width, 
+			height, omega);
+		streaming(f, post_f, width, height, rank, size);
+	}

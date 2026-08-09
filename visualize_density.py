@@ -45,7 +45,7 @@ if animation:
     plt.tight_layout()
     plt.show()
 
-point_analysis = True
+point_analysis = False
 if point_analysis:
     p = np.zeros(data.shape[0])
     for i in range(data.shape[0]):
