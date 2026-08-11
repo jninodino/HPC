@@ -1,6 +1,8 @@
 add_executable(main main.cpp)
 add_executable(relaxation relaxation.cpp)
 add_executable(streaming streaming.cpp)
+add_executable(shareWaveDecay shareWaveDecay.cpp)
 target_link_libraries(main PRIVATE lib)
 target_link_libraries(relaxation PRIVATE lib)
 target_link_libraries(streaming PRIVATE lib)
+target_link_libraries(shareWaveDecay PRIVATE lib)
