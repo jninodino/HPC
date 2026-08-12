@@ -13,7 +13,8 @@ scalar_t D1_36 = 1.0L / 36.0L;
 scalar_t W[9] = {D4_9, D1_9, D1_9, D1_9, D1_9, D1_36, D1_36, D1_36, D1_36};
 
 scalar_t c_s = 0.5777L;
-
+scalar_t pw = 0.1;
+scalar_t uw = 1.0;
 
 // Remove?
 scalar_t total_mass(field3_t f, int width, int height) {
@@ -210,7 +211,7 @@ void handle_boundary(field3_t f,
 			   int height,
 			   int rank,
 			   int size,
-			   bool periodic_bound = true
+			   bool periodic_bound = false
 			){
 	if (periodic_bound) {
 		int x_next = x;
@@ -225,7 +226,7 @@ void handle_boundary(field3_t f,
 	} else if (is_bounce_back(x, y, i, width, height,  rank, size)) {
 		f(x, y, opposite_i[i]) = post_f(x, y, i);
 	} else if(is_moving_wall(x, y, i, width, height)) {
-		f(x, y, opposite_i[i]) = post_f(x, y, i) - 2 * W[i] * cx(i) * 0.1L / (square(c_s));
+		f(x, y, opposite_i[i]) = post_f(x, y, i) - 2 * W[i] * cx(i) * pw * uw / (square(c_s));
 	}
 }
 

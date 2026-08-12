@@ -26,13 +26,11 @@ int main(int argc, char *argv[]) {
 	Kokkos::initialize(Kokkos::InitializationSettings().set_device_id(-1));
 	{
     	// Constant parameters
-    	int width = 50;
-    	int height = 50;
-		scalar_t omega = 0.2;
-        scalar_t epsilon = .000001;
-        scalar_t pi = 3.14159265358979323846;
+    	int width = 128;
+    	int height = 128;
+		scalar_t omega = 1.7;
 
-		int steps = 1000;
+		int steps = 10000;
 
 		if (width % size != 0) {
 			std::cout << "Width must be a multiple of size got: " << width <<
@@ -53,27 +51,37 @@ int main(int argc, char *argv[]) {
 		for (int x = 1; x < local_width - 1; x++) {
 			for (int y = 0; y < height; y++) {
 				density(x, y) = 1.0;
-				velocity(x, y, 0) = epsilon * std::sin(2 * pi * y /
-                    static_cast<double>(height));
-				velocity(x, y, 1) = 0.0;
 				for (int i = 0; i < v_dim; i++) {
 					f(x, y, i) = calc_f_eq(density, velocity, x, y, i);
 				}
 			}
 		}
 
-
+        // start timing
+        Kokkos::fence();
+        Kokkos::Timer timer;
 		for (int step=0; step<steps; step++) {
 
 			calc_collision(f, post_f, density, velocity, local_width, 
 				height, omega);
 			streaming(f, post_f, local_width, height, rank, size);
-
-			save_density(density, local_width, height, step, steps, 
-				"data/shareWaveDecay_density.bin");
-            save_velocity(velocity, local_width, height, step, steps,
-                "data/shareWaveDecay_velocity_02.bin");
+            //save_velocity(velocity, local_width, height, step, steps,
+            //    "data/lidDrivenCavity_velocity.bin");
+            //save_density(density, local_width, height, step, steps,
+            //    "data/lidDrivenCavity_density.bin");
 			}
+
+
+    Kokkos::fence();
+    // stop timer
+    double runtime = timer.seconds();
+    
+    double mlups = (static_cast<double>(width) * height * steps) / (runtime *1e6);
+
+    if (rank == 0) {
+        std::cout << "Runtime: " << runtime << " s\n";
+        std::cout << "MLUPS: " << mlups << "\n";
+    }
 
 	}
 	// Finalize MPI and Kokkos
