@@ -20,4 +20,3 @@ target_include_directories(tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 
 include(GoogleTest)
-gtest_discover_tests(tests)
