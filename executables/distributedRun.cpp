@@ -26,11 +26,11 @@ int main(int argc, char *argv[]) {
 	Kokkos::initialize(Kokkos::InitializationSettings().set_device_id(-1));
 	{
     	// Constant parameters
-    	int width = 128;
-    	int height = 128;
+    	int width = 512;
+    	int height = 512;
 		scalar_t omega = 1.7; 
 
-		int steps = 100;
+		int steps = 500;
         double total_mass = 0.0L;
         double total_kin_energy = 0.0L;
 
