@@ -65,21 +65,21 @@ bool is_bounce_back(int x, int y, int i, int width, int height, int rank,
 bool is_moving_wall(int x, int y, int i, int width, int height);
 
 // For domain decomposition: Add input from neighbored field
-void add_neighbor_input(field3_t f, int width, int height, int rank, 
+void add_neighbor_input(field3_t f, int width, int height, int rank,
 	int size);
 
 // Execute streaming step
-void streaming(field3_t f, field3_t post_f, int width, int height, 
- int rank, int size);
+void streaming(field3_t f, field3_t post_f, field2_t density, int width,
+	int height, int rank, int size);
 
 // For domain decomposition: Exchange ghost cells with neighbored field
 void share_ghost_cells(field3_t f, int width, int height, int rank, int size);
 
 // Calculate total mass over complete domain
-void calc_total_mass(double total_mass, field2_t density, int width, int height);
+void calc_total_mass(double &total_mass, field2_t density, int width, int height);
 
 // Calculate total kinetic energy over complete domain
-void calc_total_kin_energy(double total_kin_energy, field3_t velocity,
+void calc_total_kin_energy(double &total_kin_energy, field3_t velocity,
 	field2_t density, int width, int height);
 
 // Run one timestep of lattice boltzman simulation

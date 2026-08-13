@@ -13,8 +13,7 @@ scalar_t D1_36 = 1.0L / 36.0L;
 scalar_t W[9] = {D4_9, D1_9, D1_9, D1_9, D1_9, D1_36, D1_36, D1_36, D1_36};
 
 scalar_t c_s = 0.5777L;
-scalar_t pw = 0.1;
-scalar_t uw = 1.0;
+scalar_t uw = 0.1;
 
 // Remove?
 scalar_t total_mass(field3_t f, int width, int height) {
@@ -122,8 +121,18 @@ void calc_collision(field3_t f,
 }
 
 bool is_bounce_back(int x, int y, int i, int width, int height, int rank, int size) {
+	// top-left corner: direction 6 is already bounce-backed by the left-wall
+	// check below; also bounce-back its diagonal partner, direction 5,
+	// instead of letting the moving-wall branch apply a one-sided (and
+	// therefore mass-changing) lid correction to it alone
+	if (x == 1 && rank == 0 && y == height-1 && i == 5) {
+		return true;
+	// top-right corner: mirror of the above (direction 5 is already
+	// bounce-backed by the right-wall check below; also bounce-back 6)
+	} else if (x == width-2 && rank == size-1 && y == height-1 && i == 6) {
+		return true;
 	// right end of the total map
-	if ((x == width-2) && (i==1 || i==5 || i==8) && (rank == size - 1)) {
+	} else if ((x == width-2) && (i==1 || i==5 || i==8) && (rank == size - 1)) {
 		return true;
 	// left end of the total map
 	} else if (x == 1  && (i==3 || i==6 || i==7) && (rank == 0)) {
@@ -149,37 +158,33 @@ void add_neighbor_input(field3_t f,
 						int rank,
 						int size
 					) {
-	
-	
-	// button left
-	f(1, 0, 1) = f(0, 0, 1);
-	f(1, 1, 5) = f(0, 0, 5);
-	f(1, 0, 5) = f(0, 0, 8);
 
-	// button right
-	f(width-2, 0, 3) = f(width-1, 0, 3);
-	f(width-2, 1, 6) = f(width-1, 0, 6);
-	f(width-2, 0, 6) = f(width-1, 0, 7);	
 
-	// upper left
-	f(1, height-1, 1) = f(0, height-1, 1);
-	f(1, height-1, 8) = f(0, height-1, 5); // TODO moving wall
-	f(1, height-1, 8) = f(0, height-1, 8);
+	bool has_left = (rank != 0);
+	bool has_right = (rank != size - 1);
 
-	// upper right
-	f(width-2, height-1, 3) = f(width-1, height-1, 3);
-	f(width-2, height-1, 7) = f(width-1, height-1, 6); // TODO moving wall
-	f(width-2, height-1, 7) = f(width-2, height-1, 8);
+	if (has_left) {
+		for (int y = 0; y < height; y++) { // TODO use Kokkos
+			f(1, y, 1) = f(0, y, 1);
+		}
+		for (int y = 1; y < height; y++) { // TODO use Kokkos
+			f(1, y, 5) = f(0, y, 5);
+		}
+		for (int y = 0; y < height - 1; y++) { // TODO use Kokkos
+			f(1, y, 8) = f(0, y, 8);
+		}
+	}
 
-	for (int y=1; y<height-1; y++) { // TODO use Kokkos
-		for (int i=0; i<9; i++) {
-
-			f(1, y+1, 5) = f(1, y, 5);
-			f(1, y, 1) = f(1, y, 1);
-			f(1, y-1, 8) = f(1, y, 8);
-			f(width-2, y+1, 6) = f(width-1, y, 6);
+	// Mirror of the above for the right boundary (directions 3, 6, 7).
+	if (has_right) {
+		for (int y = 0; y < height; y++) { // TODO use Kokkos
 			f(width-2, y, 3) = f(width-1, y, 3);
-			f(width-2, y-1, 7) = f(width-1, y, 7);
+		}
+		for (int y = 1; y < height; y++) { // TODO use Kokkos
+			f(width-2, y, 6) = f(width-1, y, 6);
+		}
+		for (int y = 0; y < height - 1; y++) { // TODO use Kokkos
+			f(width-2, y, 7) = f(width-1, y, 7);
 		}
 	}
 }
@@ -204,6 +209,7 @@ bool is_boundery(int x, int y, int i, int width, int height, int rank, int size)
 
 void handle_boundary(field3_t f,
 			   field3_t post_f,
+			   field2_t density,
 			   int x,
 			   int y,
 			   int i,
@@ -226,19 +232,19 @@ void handle_boundary(field3_t f,
 	} else if (is_bounce_back(x, y, i, width, height,  rank, size)) {
 		f(x, y, opposite_i[i]) = post_f(x, y, i);
 	} else if(is_moving_wall(x, y, i, width, height)) {
-		f(x, y, opposite_i[i]) = post_f(x, y, i) - 2 * W[i] * cx(i) * pw * uw / (square(c_s));
+		f(x, y, opposite_i[i]) = post_f(x, y, i) 
+		- 2 * W[i] * cx(i) * density(x, y) * uw / (square(c_s));
 	}
 }
 
-void streaming(field3_t f, field3_t post_f, int width, int height,
-			   int rank,
-			   int size
-			){
-	Kokkos::parallel_for("update_f", Kokkos::MDRangePolicy<Kokkos::Rank<3>>({1, 0, 0}, {width - 1, height, v_dim}),
+void streaming(field3_t f, field3_t post_f, field2_t density, int width, 
+	int height, int rank, int size){
+	Kokkos::parallel_for("update_f", Kokkos::MDRangePolicy<Kokkos::Rank<3>>(
+		{1, 0, 0}, {width - 1, height, v_dim}),
 		KOKKOS_LAMBDA(const int x, const int y, const int i) {
 			
 			if (is_boundery(x, y, i, width, height, rank, size)) {
-				handle_boundary(f, post_f, x, y, i, width, height, rank, size);
+				handle_boundary(f, post_f, density, x, y, i, width, height, rank, size);
 			} else {
 				int x_next = x + cx(i);
 				int y_next = y + cy(i);
@@ -260,7 +266,7 @@ void share_ghost_cells(field3_t f, int width, int height, int rank, int size) {
 	// Send buffer to left neighbor and receive from right neighbor
 	for (int y=0; y<height; y++) {
 		for (int d=0; d<3; d++) {
-			send_buf[y * 3 + d] = f(0, y, right_dirs[d]);
+			send_buf[y * 3 + d] = f(0, y, left_dirs[d]);
 		}
 	}
 	MPI_Sendrecv(send_buf.data(), buf_size, MPI_DOUBLE, left, 0,
@@ -269,7 +275,7 @@ void share_ghost_cells(field3_t f, int width, int height, int rank, int size) {
 	// Unpack into right ghost column
 	for (int y=0; y<height; y++) {
 		for (int d=0; d<3; d++) {
-			f(width-1, y, right_dirs[d]) = recv_buf[y * 3 + d];
+			f(width-1, y, left_dirs[d]) = recv_buf[y * 3 + d];
 		}
 	}
 
@@ -290,7 +296,7 @@ void share_ghost_cells(field3_t f, int width, int height, int rank, int size) {
 	add_neighbor_input(f, width, height, rank, size);
 }
 
-void calc_total_mass(double total_mass, field2_t density, int width, 
+void calc_total_mass(double &total_mass, field2_t density, int width, 
 	int height) {
 	double local_mass = 0.0L;
 	
@@ -302,22 +308,25 @@ void calc_total_mass(double total_mass, field2_t density, int width,
 		local_mass);
 	Kokkos::fence();
 
-	MPI_Reduce(&local_mass, &total_mass, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	MPI_Reduce(&local_mass, &total_mass, 1, MPI_DOUBLE, MPI_SUM, 0,
+		MPI_COMM_WORLD);
 }
 
-void calc_total_kin_energy(double total_kin_energy, field3_t velocity, 
-	field2_t density, int width, int height) {
-	double local_energy = 0.0L;
+void calc_total_kin_energy(double &total_kin_energy, field3_t velocity, 
+    field2_t density, int width, int height) {
+    double local_energy = 0.0;
 
-	Kokkos::parallel_reduce("sum_local_kin_energy",
-		Kokkos::MDRangePolicy<Kokkos::Rank<2>>({1, 0}, {width-2, height}),
-		KOKKOS_LAMBDA(const int x, const int y, double& lsum) {
-			lsum += 0.5 * density(x, y) *  (square(velocity(x, y, 0)) + square(velocity(x, y, 1)));
-		},
-		local_energy);
-	Kokkos::fence();
+    Kokkos::parallel_reduce("sum_local_kin_energy",
+        Kokkos::MDRangePolicy<Kokkos::Rank<2>>({1, 0}, {width-2, height}),
+        KOKKOS_LAMBDA(const int x, const int y, double& lsum) {
+            lsum += 0.5 * density(x, y) * (square(velocity(x, y, 0)) + 
+			square(velocity(x, y, 1)));
+        },
+        local_energy);
+    Kokkos::fence();
 
-	MPI_Reduce(&local_energy, &total_kin_energy, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&local_energy, &total_kin_energy, 1, MPI_DOUBLE, MPI_SUM, 0, 
+		MPI_COMM_WORLD);
 }
 
 void execute_time_step(field3_t f, field3_t post_f, field2_t density, 
@@ -328,5 +337,5 @@ void execute_time_step(field3_t f, field3_t post_f, field2_t density,
 		}
 		calc_collision(f, post_f, density, velocity, width, 
 			height, omega);
-		streaming(f, post_f, width, height, rank, size);
+		streaming(f, post_f, density, width, height, rank, size);
 	}

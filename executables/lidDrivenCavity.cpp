@@ -47,8 +47,11 @@ int main(int argc, char *argv[]) {
 		field3_t f("f", local_width, height, v_dim);
 		field3_t post_f("post_f", local_width, height, v_dim);
 
-		// Uniform equilibrium background: rho = 1, u = 0 everywhere
-		for (int x = 1; x < local_width - 1; x++) {
+		// Uniform equilibrium background: rho = 1, u = 0 everywhere.
+		// Includes the ghost columns (x=0, local_width-1) so the very first
+		// ghost exchange (before any streaming has run) ships real
+		// equilibrium data instead of zero-initialized garbage.
+		for (int x = 0; x < local_width; x++) {
 			for (int y = 0; y < height; y++) {
 				density(x, y) = 1.0;
 				for (int i = 0; i < v_dim; i++) {
@@ -64,7 +67,7 @@ int main(int argc, char *argv[]) {
 
 			calc_collision(f, post_f, density, velocity, local_width, 
 				height, omega);
-			streaming(f, post_f, local_width, height, rank, size);
+			streaming(f, post_f, density, local_width, height, rank, size);
             //save_velocity(velocity, local_width, height, step, steps,
             //    "data/lidDrivenCavity_velocity.bin");
             //save_density(density, local_width, height, step, steps,

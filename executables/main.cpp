@@ -54,7 +54,7 @@ int main(int argc, char *argv[]) {
 			share_ghost_cells(pdf, local_width, height, rank, size);
 			calc_collision(pdf, post_pdf, density, velocity, local_width, 
 				height, omega);
-			streaming(pdf, post_pdf, local_width, height, rank, size);
+			streaming(pdf, post_pdf, density, local_width, height, rank, size);
 			calc_total_mass(total_mass, density, local_width, height);
 			calc_total_kin_energy(total_kin_energy, velocity, density, width,
 				height);

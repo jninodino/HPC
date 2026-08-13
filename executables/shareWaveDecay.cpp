@@ -67,7 +67,7 @@ int main(int argc, char *argv[]) {
 
 			calc_collision(f, post_f, density, velocity, local_width, 
 				height, omega);
-			streaming(f, post_f, local_width, height, rank, size);
+			streaming(f, post_f, density, local_width, height, rank, size);
 
 			save_density(density, local_width, height, step, steps, 
 				"data/shareWaveDecay_density.bin");

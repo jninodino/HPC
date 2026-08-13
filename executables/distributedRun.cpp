@@ -26,18 +26,20 @@ int main(int argc, char *argv[]) {
 	Kokkos::initialize(Kokkos::InitializationSettings().set_device_id(-1));
 	{
     	// Constant parameters
-    	int width = 100;
-    	int height = 100;
-		scalar_t omega = 1.9;
+    	int width = 128;
+    	int height = 128;
+		scalar_t omega = 1.7; 
 
-		int steps = 61;
+		int steps = 100;
+        double total_mass = 0.0L;
+        double total_kin_energy = 0.0L;
 
 		if (width % size != 0) {
 			std::cout << "Width must be a multiple of size got: " << width <<
 			 " and " << size << std::endl;
 			return 1;
 		}
-
+        
 		// Calculate local dimensions, add 2 for ghost cells at 0 and n_local
 		int local_width = (size > 0) ? width / size + 2 : width;
 
@@ -47,39 +49,43 @@ int main(int argc, char *argv[]) {
 		field3_t f("f", local_width, height, v_dim);
 		field3_t post_f("post_f", local_width, height, v_dim);
 
-
-		// Uniform equilibrium background: rho = 1, u = 0 everywhere
-		for (int x = 1; x < local_width - 1; x++) {
+		// Uniform equilibrium background: rho = 1, u = 0 everywhere.
+		// Includes the ghost columns (x=0, local_width-1) so the very first
+		// ghost exchange (before any streaming has run) ships real
+		// equilibrium data instead of zero-initialized garbage.
+		for (int x = 0; x < local_width; x++) {
 			for (int y = 0; y < height; y++) {
-				density(x, y) = 0.1;
-				velocity(x, y, 0) = 0.0;
-				velocity(x, y, 1) = 0.0;
+				density(x, y) = 1.0;
 				for (int i = 0; i < v_dim; i++) {
 					f(x, y, i) = calc_f_eq(density, velocity, x, y, i);
 				}
 			}
 		}
 
-		// Small density bump at the center
-		int cx0 = local_width / 2;
-		int cy0 = height / 2;
-		density(cx0, cy0) = 0.9;
-
-		for (int i = 0; i < v_dim; i++) {
-			f(cx0, cy0, i) = calc_f_eq(density, velocity, cx0, cy0, i);
+        // start timing
+        Kokkos::fence();
+        Kokkos::Timer timer;
+		for (int step=0; step<steps; step++) {
+			execute_time_step(f, post_f, density, velocity, local_width, height,
+            omega, rank, size);
 		}
 
+    calc_total_mass(total_mass, density, local_width, height);
+    calc_total_kin_energy(total_kin_energy, velocity, density, local_width, 
+                height);
 
+    Kokkos::fence();
+    // stop timer
+    double runtime = timer.seconds();
+    
+    double mlups = (static_cast<double>(width) * height * steps) / (runtime *1e6);
 
-		for (int step=0; step<steps; step++) {
-
-			calc_collision(f, post_f, density, velocity, local_width, 
-				height, omega);
-			streaming(f, post_f, density, local_width, height, rank, size);
-
-			save_density(density, local_width, height, step, steps, 
-				"data/relaxation_density.bin");
-			}
+    if (rank == 0) {
+        std::cout << "Runtime: " << runtime << " s\n";
+        std::cout << "MLUPS: " << mlups << "\n";
+        std::cout << "Total mass: " << total_mass << "\n";
+        std::cout << "Total kinetic energy: " << total_kin_energy << "\n";
+    }
 
 	}
 	// Finalize MPI and Kokkos
