@@ -41,35 +41,35 @@ The implementation covers the main milestones of the HPC project:
 
 The solver uses the D2Q9 lattice with nine discrete velocity directions. For every lattice cell, the macroscopic density and velocity are reconstructed from the particle distribution functions:
 
-\[
+$$
 \rho = \sum_i f_i,
 \qquad
 \mathbf{u} = \frac{1}{\rho}\sum_i f_i\mathbf{c}_i.
-\]
+$$
 
 The BGK collision step relaxes the populations towards local equilibrium:
 
-\[
+$$
 f_i^{\mathrm{post}}
 = f_i - \omega\left(f_i-f_i^{\mathrm{eq}}\right).
-\]
+$$
 
 The D2Q9 equilibrium distribution implemented in the code is
 
-\[
+$$
 f_i^{\mathrm{eq}}
 = w_i\rho\left[
 1 + 3(\mathbf{c}_i\cdot\mathbf{u})
 + \frac{9}{2}(\mathbf{c}_i\cdot\mathbf{u})^2
 - \frac{3}{2}|\mathbf{u}|^2
 \right].
-\]
+$$
 
 For the BGK model in lattice units, the kinematic viscosity is related to the relaxation parameter by
 
-\[
+$$
 \nu = \frac{1}{3}\left(\frac{1}{\omega}-\frac{1}{2}\right).
-\]
+$$
 
 ## Requirements
 
@@ -83,8 +83,6 @@ For the BGK model in lattice units, the kinematic viscosity is related to the re
 - GoogleTest for the test target
 
 The top-level `CMakeLists.txt` tries to find Kokkos and Eigen first. If the requested versions are not available, CMake downloads them with `FetchContent`. GoogleTest is handled in the same way for the tests.
-
-> If you build on a machine without internet access, install the required dependencies beforehand or provide them through the cluster environment.
 
 ### Python plots
 
