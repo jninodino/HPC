@@ -56,14 +56,14 @@ $$
 
 The D2Q9 equilibrium distribution implemented in the code is
 
-$$
+```math
 f_i^{\mathrm{eq}}
 = w_i\rho\left[
 1 + 3(\mathbf{c}_i\cdot\mathbf{u})
 + \frac{9}{2}(\mathbf{c}_i\cdot\mathbf{u})^2
 - \frac{3}{2}|\mathbf{u}|^2
 \right].
-$$
+```
 
 For the BGK model in lattice units, the kinematic viscosity is related to the relaxation parameter by
 
