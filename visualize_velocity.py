@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-filename = "data/streaming_velocity.bin"
+filename = "data/velocity.bin"
 
 with open(filename, "rb") as f:
     # Header written by C++: [steps, width, height, dim=2]

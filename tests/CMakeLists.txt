@@ -20,8 +20,4 @@ target_include_directories(tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 
 include(GoogleTest)
-
-add_test(
-    NAME lattice_boltzmann_tests
-    COMMAND tests
-)
+gtest_discover_tests(tests DISCOVERY_MODE PRE_TEST)

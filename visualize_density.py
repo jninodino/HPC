@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
-filename = "data/lidDrivenCavity_density.bin"
+filename = "data/relaxation_density.bin"
 
 with open(filename, "rb") as f:
     # Header written by C++: [steps, width, height]
@@ -45,3 +45,10 @@ if animation:
     plt.tight_layout()
     plt.show()
 
+point_analysis = True
+if point_analysis:
+    p = np.zeros(data.shape[0])
+    for i in range(data.shape[0]):
+        p[i] = data[i][50][50]
+    plt.plot(p)
+    plt.show()
