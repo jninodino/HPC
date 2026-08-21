@@ -22,7 +22,8 @@ The implementation covers the main milestones of the HPC project:
 ├── src/
 │   ├── latticeBoltzmann.cpp      # LBM kernels, boundaries, MPI halo exchange
 │   ├── latticeBoltzmann.h
-│   └── saveData.cpp              # binary output helpers
+│   ├── saveData.cpp              # binary output helpers
+|   └── saveData.h
 ├── executables/
 │   ├── main.cpp                  # small general demo
 │   ├── streaming.cpp             # streaming validation
