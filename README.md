@@ -1,186 +1,418 @@
-# CMake skeleton code
+# Parallel Lattice Boltzmann Solver
 
-This repository contains a [CMake](https://cmake.org/) skeleton for C++ projects. It has provision
-for dependencies on the numerical libraries
+A two-dimensional **D2Q9 Lattice Boltzmann Method (LBM)** solver written in C++17. The project uses **Kokkos** for on-node parallel kernels and **MPI** for domain decomposition and halo exchange.
 
-* [Eigen3](https://eigen.tuxfamily.org/)
-* [Kokkos](https://kokkos.org/)
-* [MPI](https://www.mpi-forum.org/)
+The implementation covers the main milestones of the HPC project:
 
-## Getting started
+- D2Q9 streaming
+- BGK collision and local equilibrium
+- density and velocity reconstruction
+- bounce-back boundary conditions
+- moving-wall boundary condition for the lid-driven cavity
+- shear-wave decay for viscosity validation
+- one-dimensional MPI domain decomposition with ghost cells
+- strong-scaling measurements in runtime, MLUPS, mass and kinetic energy
+- MPI-vs-serial validation
 
-Click the `Use this template` button above, then clone the newly created
-repository.
+## Repository structure
 
-### Compiling using CLion
+```text
+.
+├── CMakeLists.txt
+├── src/
+│   ├── latticeBoltzmann.cpp      # LBM kernels, boundaries, MPI halo exchange
+│   ├── latticeBoltzmann.h
+│   └── saveData.cpp              # binary output helpers
+├── executables/
+│   ├── main.cpp                  # small general demo
+│   ├── streaming.cpp             # streaming validation
+│   ├── relaxation.cpp            # density perturbation / collision validation
+│   ├── shareWaveDecay.cpp        # shear-wave decay experiment
+│   ├── lidDrivenCavity.cpp       # lid-driven cavity benchmark
+│   └── distributedRun.cpp        # MPI scaling + serial-reference validation
+├── tests/
+│   └── test_latticeBoltzmann.cpp # GoogleTest unit/regression tests
+├── data/                         # generated binary simulation data
+└── visualize_*.py               # plotting and animation scripts
+```
 
-> Note: for Windows users, please follow [these
-> instructions](https://www.jetbrains.com/help/clion/how-to-use-wsl-development-environment-in-product.html)
-> in addition to the text below.
+## Numerical model
 
-If you are using CLion, you can open your freshly cloned project by clicking on
-the "Open" button in the CLion welcome window. If prompted, trust the project.
+The solver uses the D2Q9 lattice with nine discrete velocity directions. For every lattice cell, the macroscopic density and velocity are reconstructed from the particle distribution functions:
 
-You can change CMake build option in "**File > Settings > Build, Execution, Deployment > CMake**".
-This windows allows to set the `CMAKE_BUILD_TYPE` option, which controls the level of optimization applied to
-the code. `Debug` disables optimizations and turns on useful debugging features.
-This mode should be used when developing and testing code.
-`Release` turns on aggressive optimization. This mode should be used when
-running production simulations. Add `-DCMAKE_BUILD_TYPE=Release` or `-DCMAKE_BUILD_TYPE=Debug` to "CMake options"
-to switch between the two.
+\[
+\rho = \sum_i f_i,
+\qquad
+\mathbf{u} = \frac{1}{\rho}\sum_i f_i\mathbf{c}_i.
+\]
 
-To run the executable, click on the dialog directly right of the
-green hammer in the upper right toolbar, select "main", and click
-the green arrow right of that dialog. You should see the output in the "Run"
-tab, in the lower main window.
+The BGK collision step relaxes the populations towards local equilibrium:
 
-To run the tests, select "tests" in the same dialog, then run. In the lower
-window, on the right, appears a panel that enumerates all the tests that were
-run and their results.
+\[
+f_i^{\mathrm{post}}
+= f_i - \omega\left(f_i-f_i^{\mathrm{eq}}\right).
+\]
 
-Try compiling and running for both `Debug` and `Release` configurations. Don't
-forget to switch between them when testing code or running production simulations.
+The D2Q9 equilibrium distribution implemented in the code is
 
-### Compiling from the command line
+\[
+f_i^{\mathrm{eq}}
+= w_i\rho\left[
+1 + 3(\mathbf{c}_i\cdot\mathbf{u})
++ \frac{9}{2}(\mathbf{c}_i\cdot\mathbf{u})^2
+- \frac{3}{2}|\mathbf{u}|^2
+\right].
+\]
 
-The command line (terminal) may look daunting at first, but it has the advantage
-of being the same across all UNIX platforms, and does not depend on a specific
-IDE. The standard CMake workflow is to create a `build/` directory which will
-contain all the build files. To do that, and compile your project, run:
+For the BGK model in lattice units, the kinematic viscosity is related to the relaxation parameter by
+
+\[
+\nu = \frac{1}{3}\left(\frac{1}{\omega}-\frac{1}{2}\right).
+\]
+
+## Requirements
+
+### C++ build
+
+- CMake >= 3.14
+- C++17 compiler
+- MPI implementation, e.g. OpenMPI
+- Kokkos 4.7.03
+- Eigen 5.0.1
+- GoogleTest for the test target
+
+The top-level `CMakeLists.txt` tries to find Kokkos and Eigen first. If the requested versions are not available, CMake downloads them with `FetchContent`. GoogleTest is handled in the same way for the tests.
+
+> If you build on a machine without internet access, install the required dependencies beforehand or provide them through the cluster environment.
+
+### Python plots
+
+The plotting scripts require Python 3 with:
 
 ```bash
-cd <your repository>
-
-# Configure and create build directory
-cmake -B build
-
-# Compile
-cmake --build build
-
-# Run executable and tests
-./build/executables/main
-cd build && ctest
+python3 -m pip install numpy matplotlib pillow
 ```
 
-Note that CLion is by default configured to create a `cmake-build-debug/` directory.
+`pillow` is required for GIF output from the animation scripts.
 
-If there are no errors then you are all set! Note that the flag
-`-DCMAKE_BUILD_TYPE=Debug` should be changed to
-`-DCMAKE_BUILD_TYPE=Release` when you run a production simulation, i.e. a
-simulation with more than a few hundred atoms. This turns on aggressive compiler
-optimizations, which results in speedup. However, when writing the code and
-looking for bugs, `Debug` should be used instead.
+## Build
 
-Try compiling and running tests with both compilation configurations.
+### Release build
 
-### Compiling on bwUniCluster, with MPI
-
-The above steps should be done *after* loading the appropriate packages:
+Use a Release build for simulations and benchmarks:
 
 ```bash
-module load compiler/gnu mpi/openmpi
-
-# configure
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-# compile
-cmake --build build
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
 ```
 
-## How to add code to the repository
-
-There are three places where you are asked to add code:
-
-- `src/` is the core of the code. Code common to all executables and tests
-  you will run should be added here. The `CMakeLists.txt` file in `src/` creates a
-  [static library](https://en.wikipedia.org/wiki/Static_library) which is linked
-  to all the other targets in the repository, and which propagates its dependency,
-  so that there is no need to explicitly link against Eigen or MPI.
-- `tests/` contains tests for the library code code. It uses
-  [GoogleTest](https://google.github.io/googletest/) to define short, simple
-  test cases.
-- `executables/` contains the final executable codes, i.e. it needs a `main()`
-  function.
-
-### Adding to `src/`
-
-Adding files to `src/` is straightforward: create your files, e.g. `lj.h` and
-`lj.cpp`, then update the `add_library` command in
-`src/CMakeLists.txt`:
-
-```cmake
-add_library(lib STATIC 
-    hello.cpp
-    lj.cpp
-)
-```
-
-### Adding to `tests/`
-
-Create your test file, e.g. `test_verlet.cpp` in `tests/`, then modify the
-`TEST_SOURCES` variable in `tests/CMakeLists.txt`. Test that your test was
-correctly added by running `cmake --build build` in the root directory: your test should
-show up in the output of `ctest`.
-
-### Adding to `executables/`
-
-Create a new directory, e.g. with `mkdir executables/04`, then add `add_subdirectory(04)`
-to `executables/CMakeLists.txt`, then create & edit
-`executables/04/CMakeLists.txt`:
-
-```cmake
-add_executable(milestone04 main.cpp)
-target_link_libraries(milestone04 PRIVATE lib)
-```
-
-You can now create & edit `executables/04/main.cpp`, which should include a
-`main()` function as follows:
-
-```c++
-int main(int argc, char* argv[]) {
-    return 0;
-}
-```
-
-The code of your simulation goes into the `main()` function.
-
-#### Input files
-
-We often provide input files (`.xyz` files) for your simulations, for example in
-milestone 4. You should place these in e.g. `executables/04/`, and add the
-following to `executables/04/CMakeLists.txt`:
-
-```cmake
-configure_file(lj54.xyz lj54.xyz COPYONLY)
-```
-
-This will copy the file `executables/04/lj54.xyz` to
-`<build>/executables/04/lj54.xyz`, but **only** when CMake is reconfigured.
-
-*Note:* `.xyz` files are ignored by Git. That's on purpose to avoid you staging
-very large files in the git tree.
-
-## Pushing code to GitHub
-
-If you have added files to your local repositories, you should commit and push them to
-GitHub. To create a new commit (i.e. put your files in the repository's
-history), simply run:
+For development and debugging:
 
 ```bash
-git status
-# Look at the files that need to be added
-git add <files> ...
-git commit -m '<a meaningful commit message!>'
-git push
+cmake -S . -B build-debug -DCMAKE_BUILD_TYPE=Debug
+cmake --build build-debug -j
 ```
 
-This repository is setup with continuous integration (CI), so all your tests
-will run automatically when you push. This is very handy to test if you have
-breaking changes.
+### Example cluster setup
 
-### Git in CLion
+On a system using environment modules, load a compiler and MPI implementation first. The exact module names depend on the cluster.
 
-If you are using CLion, you can use Git directly from its interface. To add
-files, right click the file you wish to add, then "Git > Add". Once you are
-ready to commit, "Git > Commit" from the main menu bar. Add a message in the
-lower left window where it reads "Commit message", then click "Commit" or
-"Commit and Push...".
+For example:
+
+```bash
+module load compiler/gnu
+module load mpi/openmpi
+
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+```
+
+## Run the tests
+
+After compiling:
+
+```bash
+ctest --test-dir build --output-on-failure
+```
+
+or directly:
+
+```bash
+./build/tests/tests
+```
+
+The test suite contains checks for, among other things:
+
+- propagation in all D2Q9 directions
+- density calculation
+- mass conservation
+- momentum conservation during collision
+- equilibrium as a collision fixed point
+- bounce-back boundary conditions
+
+## Executables
+
+All executables are generated in `build/executables/`.
+
+| Executable | Purpose | Current built-in setup |
+|---|---|---|
+| `streaming` | Validate pure propagation/streaming | 15 x 10, 30 steps |
+| `relaxation` | Density perturbation and BGK relaxation | 100 x 100, `omega = 1.9`, 61 steps |
+| `shareWaveDecay` | Shear-wave viscosity experiment | 50 x 50, `omega = 0.2`, 1000 steps |
+| `lidDrivenCavity` | Lid-driven cavity and MLUPS timing | 128 x 128, `omega = 1.7`, 10000 steps |
+| `distributedRun` | MPI strong scaling and serial validation | Default: 512 x 512, 500 steps, `omega = 1.7` |
+| `main` | Small general MPI/Kokkos demo | 9 x 6, 1000 steps |
+
+The parameters are currently set directly in the corresponding `.cpp` files rather than through command-line arguments.
+Most milestone executables use parameters defined in their source files.
+`distributedRun` additionally accepts simulation parameters through the command line:
+
+```bash
+distributedRun [width] [height] [steps] [omega]
+
+## Reproducing the project experiments
+
+Run the following commands from the **repository root**, because the output and plotting scripts use relative paths such as `data/...` and `plots/...`.
+
+Create the output directories once:
+
+```bash
+mkdir -p data \
+    plots/milestone2 \
+    plots/milestone3 \
+    plots/milestone4 \
+    plots/milestone5
+```
+
+### 1. Streaming validation
+
+```bash
+mpirun -np 1 ./build/executables/streaming
+python3 visualize_streaming.py
+```
+
+The executable writes:
+
+```text
+data/streaming_density.bin
+```
+
+The visualization script generates an animation of the propagating density field.
+
+### 2. Collision / density relaxation
+
+```bash
+mpirun -np 1 ./build/executables/relaxation
+python3 visualize_relaxation.py
+```
+
+The executable writes:
+
+```text
+data/relaxation_density.bin
+```
+
+The initial state consists of a uniform background with a stronger density perturbation in the center. The perturbation is then relaxed by the BGK collision and streaming steps.
+
+### 3. Shear-wave decay
+
+```bash
+mpirun -np 1 ./build/executables/shearWaveDecay
+```
+
+With the current source settings, this produces data for `omega = 0.2`:
+
+```text
+data/shearWaveDecay_density.bin
+data/shearWaveDecay_velocity_02.bin
+```
+
+`visualize_shearWaveDecay.py` compares simulated and theoretical viscosity for several values of `omega`. It currently expects the following velocity files:
+
+```text
+shearWaveDecay_velocity_02.bin
+shearWaveDecay_velocity_04.bin
+shearWaveDecay_velocity_06.bin
+shearWaveDecay_velocity_08.bin
+shearWaveDecay_velocity_10.bin
+shearWaveDecay_velocity_12.bin
+shearWaveDecay_velocity_14.bin
+shearWaveDecay_velocity_16.bin
+shearWaveDecay_velocity_18.bin
+```
+
+To regenerate the complete viscosity curve, change `omega` and the corresponding output suffix in `executables/shearWaveDecay.cpp`, rebuild, and rerun the executable for each value before running:
+
+```bash
+python3 visualize_shearWaveDecay.py
+```
+
+The theoretical reference used by the analysis is
+
+```text
+nu = (1/3) * (1/omega - 1/2)
+```
+
+### 4. Lid-driven cavity
+
+```bash
+mpirun -np 1 ./build/executables/lidDrivenCavity
+```
+
+The program reports runtime and MLUPS for the built-in 128 x 128 problem.
+
+The moving top wall uses a lattice velocity of `u_lid = 0.1`; the remaining physical walls use bounce-back/no-slip boundary conditions.
+
+The calls that save the cavity velocity and density fields are currently commented out in `executables/lidDrivenCavity.cpp`. To regenerate the input for `visualize_lidDrivenCavity.py`, enable at least
+
+```cpp
+save_velocity(
+    velocity,
+    local_width,
+    height,
+    step,
+    steps,
+    "data/lidDrivenCavity_velocity.bin"
+);
+```
+
+then rebuild and rerun the simulation:
+
+```bash
+cmake --build build -j
+mpirun -np 1 ./build/executables/lidDrivenCavity
+python3 visualize_lidDrivenCavity.py
+```
+
+Saving every time step substantially increases I/O and is therefore intentionally disabled for the performance benchmark.
+
+### 5. MPI strong scaling
+
+`distributedRun` is the main MPI benchmark. Its default parameters are:
+
+- grid: `512 x 512`
+- time steps: `500`
+- relaxation parameter: `omega = 1.7`
+
+The executable accepts optional command-line arguments:
+
+```bash
+./distributedRun [width] [height] [steps] [omega]
+
+Example runs:
+
+```bash
+mpirun -np 1  ./build/executables/distributedRun 512 512 500 1.7
+mpirun -np 2  ./build/executables/distributedRun 512 512 500 1.7
+mpirun -np 4  ./build/executables/distributedRun 512 512 500 1.7
+mpirun -np 8  ./build/executables/distributedRun 512 512 500 1.7
+mpirun -np 16 ./build/executables/distributedRun 512 512 500 1.7
+mpirun -np 32 ./build/executables/distributedRun 512 512 500 1.7
+mpirun -np 64 ./build/executables/distributedRun 512 512 500 1.7
+
+If no arguments are given, the default values are used.
+
+[width], [height] and [steps] must be positive and the relaxation parameter must satisfy
+0 < omega < 2
+
+The global x-dimension must be divisible by the number of MPI ranks.
+
+For every run, rank 0 prints values of the form:
+
+```text
+Validation: OK
+Runtime: ... s
+MLUPS: ...
+Total mass: ...
+Total kinetic energy: ...
+```
+
+### Serial-reference validation
+
+After the timed MPI section, `distributedRun` gathers the distributed
+population field on rank 0 and runs the same solver for the complete
+domain using a single MPI rank as a reference.
+
+The distributed and single-rank population fields are compared with
+a tolerance of `1e-12`.
+
+The validation is performed outside the timed benchmark region and
+therefore does not affect the reported runtime or MLUPS.
+## MPI domain decomposition
+
+The global domain is decomposed along the x-direction. Every MPI rank owns a contiguous block plus one ghost column on either side:
+
+```text
+rank 0        rank 1        rank 2        rank 3
++----------+ +----------+ +----------+ +----------+
+| local    | | local    | | local    | | local    |
+| domain   | | domain   | | domain   | | domain   |
++----------+ +----------+ +----------+ +----------+
+     <-------- halo / ghost exchange -------->
+```
+
+Only populations that cross an MPI interface are packed into the communication buffers. The code currently stages these buffers through host mirrors before calling `MPI_Sendrecv`, which avoids requiring GPU-aware MPI.
+
+Global mass and kinetic energy are combined across ranks with MPI reductions.
+
+## Performance metrics
+
+The code reports performance in **MLUPS** (million lattice updates per second):
+
+\[
+\mathrm{MLUPS}
+= \frac{N_x N_y N_{steps}}
+{t\cdot 10^6}.
+\]
+
+For strong scaling, speedup and parallel efficiency can be calculated from the measured runtimes:
+
+\[
+S(p)=\frac{T_1}{T_p},
+\qquad
+E(p)=\frac{S(p)}{p}.
+\]
+
+The benchmark uses the maximum runtime over all MPI ranks so that the reported time reflects the slowest rank.
+
+## Optional CUDA / GPU build
+
+The repository currently configures the bundled Kokkos dependency with the CUDA backend disabled:
+
+```cmake
+set(Kokkos_ENABLE_CUDA OFF CACHE BOOL "Disable CUDA backend" FORCE)
+set(Kokkos_ENABLE_SERIAL ON CACHE BOOL "Enable Serial backend" FORCE)
+set(Kokkos_ENABLE_THREADS ON CACHE BOOL "Enable Threads backend" FORCE)
+```
+
+For a CUDA build, change these settings to, for example:
+
+```cmake
+set(Kokkos_ENABLE_CUDA ON CACHE BOOL "Enable CUDA backend" FORCE)
+set(Kokkos_ENABLE_SERIAL ON CACHE BOOL "Enable Serial backend" FORCE)
+set(Kokkos_ENABLE_THREADS OFF CACHE BOOL "Disable Threads backend" FORCE)
+```
+
+## Notes on reproducibility
+
+- Use a Release build for benchmark numbers.
+- Run benchmark commands from the repository root.
+- Do not include file output or plotting inside the timed strong-scaling region.
+- Record the compiler, MPI version, Kokkos backend and hardware when reporting performance.
+- Use the same problem size and number of time steps when comparing MPI process counts.
+
+## Implementation notes
+
+- `distributedRun` supports command-line configuration of the grid size,
+  number of time steps, and relaxation parameter.
+- The milestone executables are intended primarily for single-rank
+  validation experiments, while `distributedRun` is used for MPI
+  strong-scaling measurements.
+- The shear-wave analysis compares the measured viscosity with the
+  theoretical BGK relation for several relaxation parameters.
+- Performance measurements should be performed with a Release build
+  and without file output inside the timed region.
+
+## License
+
+This project is distributed under the MIT License. See `LICENSE` for details.

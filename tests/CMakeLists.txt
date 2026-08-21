@@ -10,7 +10,7 @@ if(NOT GTest_FOUND)
     FetchContent_MakeAvailable(googletest)
 endif()
 
-set(TEST_SOURCES test_hello_world.cpp)
+set(TEST_SOURCES test_latticeBoltzmann.cpp)
 
 list(APPEND TEST_SOURCES gtest_mpi_main.cpp)
 
@@ -20,4 +20,8 @@ target_include_directories(tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 
 include(GoogleTest)
-gtest_discover_tests(tests)
+
+add_test(
+    NAME lattice_boltzmann_tests
+    COMMAND tests
+)
