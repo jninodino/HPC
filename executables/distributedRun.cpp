@@ -1,4 +1,4 @@
-#include "saveData.cpp"
+#include "saveData.h"
 #include <Kokkos_Core.hpp>
 #include <chrono>
 #include <cmath>
@@ -191,7 +191,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Initialize Kokkos
-    Kokkos::initialize(Kokkos::InitializationSettings().set_device_id(-1));
+    Kokkos::initialize(argc, argv); // Changed bc: Cuda can't access device -1
     {
         // Constant parameters
         double total_mass = 0.0L;

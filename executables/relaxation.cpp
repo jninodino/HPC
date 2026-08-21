@@ -5,7 +5,7 @@
 #include <string>
 #include <fstream>
 #include <stdexcept>
-#include "simulation.cpp"
+#include "saveData.h"
 #include <vector>
 #include <cmath>
 #include <numbers>
@@ -28,9 +28,9 @@ int main(int argc, char *argv[]) {
     	// Constant parameters
     	int width = 100;
     	int height = 100;
-		scalar_t omega = 0.0;
+		scalar_t omega = 1.9;
 
-		int steps = 200;
+		int steps = 61;
 
 		if (width % size != 0) {
 			std::cout << "Width must be a multiple of size got: " << width <<
@@ -46,22 +46,41 @@ int main(int argc, char *argv[]) {
 		field3_t velocity("velocity", local_width, height, 2);
 		field3_t f("f", local_width, height, v_dim);
 		field3_t post_f("post_f", local_width, height, v_dim);
+		GhostBuffers ghost_buffers(height);
+
+
+		// Uniform equilibrium background: rho = 1, u = 0 everywhere
+		for (int x = 1; x < local_width - 1; x++) {
+			for (int y = 0; y < height; y++) {
+				density(x, y) = 0.1;
+				velocity(x, y, 0) = 0.0;
+				velocity(x, y, 1) = 0.0;
+				for (int i = 0; i < v_dim; i++) {
+					f(x, y, i) = calc_f_eq(density, velocity, x, y, i);
+				}
+			}
+		}
+
+		// Small density bump at the center
+		int cx0 = local_width / 2;
+		int cy0 = height / 2;
+		density(cx0, cy0) = 0.9;
 
 		for (int i = 0; i < v_dim; i++) {
-			f(local_width / 2, height / 2, i) = 0.1;
+			f(cx0, cy0, i) = calc_f_eq(density, velocity, cx0, cy0, i);
 		}
+
 
 
 		for (int step=0; step<steps; step++) {
-			if (size > 1) {
-				share_ghost_cells(f, local_width, height, rank, size);
-			}
+
 			calc_collision(f, post_f, density, velocity, local_width, 
 				height, omega);
-			streaming(f, post_f, local_width, height, rank, size);
+			streaming(f, post_f, density, local_width, height, rank, size);
+
 			save_density(density, local_width, height, step, steps, 
 				"data/relaxation_density.bin");
-		}
+			}
 
 	}
 	// Finalize MPI and Kokkos
@@ -70,4 +89,3 @@ int main(int argc, char *argv[]) {
 	std::cout << "Made it to the end\n";
 	return 0;
 }
-

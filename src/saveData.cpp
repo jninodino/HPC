@@ -1,20 +1,15 @@
-#include <iostream>
-#include <filesystem>
-#include <mpi.h>
-#include <Kokkos_Core.hpp>
+#include "saveData.h"
 #include <fstream>
-#include "latticeBoltzmann.h"
-using scalar_t = double;
+#include <stdexcept>
 
 
-constexpr double pi = 3.14159265358979323846;
-
-
-
-void save_density(Kokkos::View<scalar_t**> density, int width, int height, int step, int steps, const std::string& filename) {
-
+//____________________________________________________________________________
+void save_density(field2_t density, int width, int height, int step, int steps, const std::string& filename) {
+	// Create a host mirror of the density view to ensure data is accessible on the host
+	auto density_host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, density);
+	
 	if (step == 0) {
-		// Initialize output file once and store metadata header.
+		// Initialize output file once and store metadata header
 		std::ofstream init_file(filename, std::ios::binary | std::ios::trunc);
 		if (!init_file) {
 			throw std::runtime_error("Failed to open output file for initialization: " + filename);
@@ -38,14 +33,17 @@ void save_density(Kokkos::View<scalar_t**> density, int width, int height, int s
 
   for (int i = 0; i < width; ++i) {
     for (int j = 0; j < height; ++j) {
-      scalar_t d = density(i, j);
+      scalar_t d = density_host(i, j);
       file.write(reinterpret_cast<const char*>(&d), sizeof(scalar_t));
     }
   }
 }
 
-void save_velocity(Kokkos::View<scalar_t***> velocity, int width, int height, 
+
+//____________________________________________________________________________
+void save_velocity(field3_t velocity, int width, int height, 
 	int step, int steps, const std::string& filename) {
+	auto velocity_host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, velocity);
 
 	int dim = 2;
 	if (step == 0) {
@@ -75,8 +73,8 @@ void save_velocity(Kokkos::View<scalar_t***> velocity, int width, int height,
 
   for (int i = 0; i < width; ++i) {
     for (int j = 0; j < height; ++j) {
-      scalar_t v_x = velocity(i, j, 0);
-	  scalar_t v_y = velocity(i, j, 1);
+      scalar_t v_x = velocity_host(i, j, 0);
+	  scalar_t v_y = velocity_host(i, j, 1);
       file.write(reinterpret_cast<const char*>(&v_x), sizeof(scalar_t));
 	  file.write(reinterpret_cast<const char*>(&v_y), sizeof(scalar_t));
     }

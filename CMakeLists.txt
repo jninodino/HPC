@@ -41,9 +41,21 @@ if(NOT Kokkos_FOUND)
     set(Kokkos_ENABLE_TESTS OFF CACHE BOOL "Disable Kokkos tests" FORCE)
     set(Kokkos_ENABLE_EXAMPLES OFF CACHE BOOL "Disable Kokkos examples" FORCE)
 
-    set(Kokkos_ENABLE_CUDA OFF CACHE BOOL "Disable CUDA backend" FORCE)
-    set(Kokkos_ENABLE_SERIAL ON CACHE BOOL "Enable Serial backend" FORCE)
-    set(Kokkos_ENABLE_THREADS ON CACHE BOOL "Enable Threads backend" FORCE)
+    option(LBM_ENABLE_CUDA "Enable CUDA backend" OFF)
+
+    if(LBM_ENABLE_CUDA)
+        message(STATUS "Building with CUDA backend")
+
+        set(Kokkos_ENABLE_CUDA ON CACHE BOOL "" FORCE)
+        set(Kokkos_ENABLE_THREADS OFF CACHE BOOL "" FORCE)
+        set(Kokkos_ENABLE_SERIAL ON CACHE BOOL "" FORCE)
+    else()
+        message(STATUS "Building with CPU Threads backend")
+
+        set(Kokkos_ENABLE_CUDA OFF CACHE BOOL "" FORCE)
+        set(Kokkos_ENABLE_THREADS ON CACHE BOOL "" FORCE)
+        set(Kokkos_ENABLE_SERIAL OFF CACHE BOOL "" FORCE)
+    endif()
 
     FetchContent_MakeAvailable(kokkos)
 endif()

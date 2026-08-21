@@ -11,12 +11,13 @@ TEST(LATTICEBOLTZMANN, propagation_all_directions) {
 	const int height = 7;
 	field3_t f("f", width, height, v_dim);
 	field3_t post_f("post_f", width, height, v_dim);
+	field2_t density("density", width, height);
 
 	for (int i=0; i<v_dim; i++) {
 		post_f(3, 3, i) = static_cast<scalar_t>(i + 1); 
 	}
 	
-	streaming(f, post_f, width, height, 0, 1);
+	streaming(f, post_f, density, width, height, 0, 1);
 
     EXPECT_DOUBLE_EQ(f(3, 3, 0), 1.0);  // rest       -> (3,3)
     EXPECT_DOUBLE_EQ(f(4, 3, 1), 2.0);  // right      -> (4,3)
@@ -30,20 +31,21 @@ TEST(LATTICEBOLTZMANN, propagation_all_directions) {
 }
 
 TEST(LATTICEBOLTZMANN, calc_density) {
-	const int width = 3;
-	const int height = 3;
-	field2_t density("density", width, height);
-	field3_t f("f", width, height, v_dim);
+    const int width = 3;
+    const int height = 3;
 
-	f(1, 1, 1) = 1.0;
-	f(1, 1, 2) = 1.0;
-	f(1, 1, 3) = 1.0;
+    field2_t density("density", width, height);
+    field3_t f("f", width, height, v_dim);
 
-	calc_density(f, density, 0, 0);
-	calc_density(f, density, 1, 1);
+    f(1, 1, 1) = 1.0;
+    f(1, 1, 2) = 1.0;
+    f(1, 1, 3) = 1.0;
 
-	EXPECT_DOUBLE_EQ(density(0, 0), 0.0);
-	EXPECT_DOUBLE_EQ(density(1, 1), 3.0);
+    calc_density(f, density, width, height);
+    Kokkos::fence();
+
+    EXPECT_DOUBLE_EQ(density(0, 0), 0.0);
+    EXPECT_DOUBLE_EQ(density(1, 1), 3.0);
 }
 
 TEST(LATTICEBOLTZMANN, total_mass) {
@@ -75,7 +77,7 @@ TEST(LATTICEBOLTZMANN, mass_converation) {
 	// Execute 3 steps mass need to be constant
 	for (int step=0; step<3; step++) {
 		calc_collision(f, post_f, density, velocity, width, height, omega);
-		streaming(f, post_f, width, height, 1, 1);
+		streaming(f, post_f, density, width, height, 1, 1);
 		EXPECT_DOUBLE_EQ(mass_prev, total_mass(f, width, height));
 	}
 }
@@ -95,15 +97,35 @@ TEST(LATTICEBOLZMANN, momentum_conservation) {
 	int y = 4;
 	f(x, y, 1) = 1.0L;
 
-	calc_density(f, density, x, y);
-	calc_velocity(f, density, velocity, x, y);
-	double momentum_x_before = density(x, y) * velocity(x, y, 0);
-	double momentum_y_before = density(x, y) * velocity(x, y, 1);
-	calc_collision(f, post_f, density, velocity, width, height, omega);
-	calc_density(f, density, x, y);
-	calc_velocity(f, density, velocity, x, y);
-	double momentum_x_after = density(x, y) * velocity(x, y, 0);
-	double momentum_y_after = density(x, y) * velocity(x, y, 1);
+	// calc_density(f, density, width, height);
+	// calc_velocity(f, density, velocity, width, height);
+	calc_macroscopic(f, density, velocity, width, height);
+	Kokkos::fence();
+
+	const double momentum_x_before =
+		density(x, y) * velocity(x, y, 0);
+	const double momentum_y_before =
+		density(x, y) * velocity(x, y, 1);
+
+	calc_collision(
+		f,
+		post_f,
+		density,
+		velocity,
+		width,
+		height,
+		omega
+	);
+
+	// calc_density(post_f, density, width, height);
+	// calc_velocity(post_f, density, velocity, width, height);
+	calc_macroscopic(post_f, density, velocity, width, height);
+	Kokkos::fence();
+
+	const double momentum_x_after =
+		density(x, y) * velocity(x, y, 0);
+	const double momentum_y_after =
+		density(x, y) * velocity(x, y, 1);
 
 	EXPECT_DOUBLE_EQ(momentum_x_before, momentum_x_after);
 	EXPECT_DOUBLE_EQ(momentum_y_before, momentum_y_after);
@@ -111,41 +133,62 @@ TEST(LATTICEBOLZMANN, momentum_conservation) {
 
 // Test of Milestone 3: Equilibrium is a fixed point, if f = f_eq nothing
 // must change
-TEST(LATTICEBOLZMANN, equilibrium_is_a_fixed_point) {
-	const int width = 9;
-	const int height = 9;
-	field2_t density("density", width, height);
-	field3_t velocity("velocity", width, height, 2);
-	field3_t f("f", width, height, v_dim);
-	field3_t post_f("post_f", width, height, v_dim);
-	scalar_t omega = 1.7L;
+TEST(LATTICEBOLTZMANN, equilibrium_is_a_fixed_point)
+{
+    const int width = 9;
+    const int height = 9;
 
-	density(4, 4) = 1.0;
-	velocity(4, 4, 1) = 1.0;
+    field2_t density("density", width, height);
+    field3_t velocity("velocity", width, height, 2);
+    field3_t f("f", width, height, v_dim);
+    field3_t post_f("post_f", width, height, v_dim);
 
-	// Set f equal to f_eq
-	for (int x = 0; x < width; x++) {
-		for (int y = 0; y < height; y++) {
-			for (int i = 0; i < v_dim; i++) {
-				f(x, y, i) = calc_f_eq(density, velocity, x, y, i);
-			}
-		}
-	}
+    const scalar_t omega = 1.7;
 
-	double d_before = density(4, 4);
-	double v_x_before = velocity(4, 4, 0);
-	double v_y_before = velocity(4, 4, 1);
+    // Uniform equilibrium state
+    Kokkos::parallel_for(
+        "initialize_equilibrium",
+        Kokkos::MDRangePolicy<Kokkos::Rank<2>>(
+            {0, 0}, {width, height}),
+        KOKKOS_LAMBDA(const int x, const int y) {
+            density(x, y) = 1.0;
+            velocity(x, y, 0) = 0.0;
+            velocity(x, y, 1) = 0.0;
 
-	calc_collision(f, post_f, density, velocity, width, height, omega);
-	streaming(f, post_f, width, height, 1, 1);
+            for (int i = 0; i < v_dim; ++i) {
+                f(x, y, i) =
+                    calc_f_eq(density, velocity, x, y, i);
+            }
+        });
 
-	double d_after = density(4, 4);
-	double v_x_after = velocity(4, 4, 0);
-	double v_y_after = velocity(4, 4, 1);
+    Kokkos::fence();
 
-	EXPECT_DOUBLE_EQ(d_before, d_after);
-	EXPECT_DOUBLE_EQ(v_x_before, v_x_after);
-	EXPECT_DOUBLE_EQ(v_y_before, v_y_after);
+    calc_collision(
+        f, post_f,
+        density, velocity,
+        width, height,
+        omega);
+
+    Kokkos::fence();
+
+    auto h_f =
+        Kokkos::create_mirror_view_and_copy(
+            Kokkos::HostSpace{}, f);
+
+    auto h_post_f =
+        Kokkos::create_mirror_view_and_copy(
+            Kokkos::HostSpace{}, post_f);
+
+    for (int x = 1; x < width - 1; ++x) {
+        for (int y = 0; y < height; ++y) {
+            for (int i = 0; i < v_dim; ++i) {
+                EXPECT_NEAR(
+                    h_post_f(x, y, i),
+                    h_f(x, y, i),
+                    1e-14);
+            }
+        }
+    }
 }
 
 TEST(LATTICEBOLTZMANN, calc_f_eq) {
@@ -222,7 +265,7 @@ TEST(LATTICEBOLTZMANN, collision_streaming) {
 
 	calc_collision(f, post_f, density, velocity, width, height, omega, 
 		relaxation);
-	streaming(f, post_f, width, height, 1, 1);
+	streaming(f, post_f, density, width, height, 1, 1);
 	
 	EXPECT_DOUBLE_EQ(f(1, 0, 7), expected_res[7]);
 	EXPECT_DOUBLE_EQ(f(1, 1, 3), expected_res[3]);
@@ -233,90 +276,157 @@ TEST(LATTICEBOLTZMANN, collision_streaming) {
 	EXPECT_DOUBLE_EQ(f(3, 0, 8), expected_res[8]);
 	EXPECT_DOUBLE_EQ(f(3, 1, 1), expected_res[1]);
 	EXPECT_DOUBLE_EQ(f(3, 2, 5), expected_res[5]);
-	EXPECT_DOUBLE_EQ(f(1, 1, 0), 0.0L);
-
 }
 
-//TEST(LATTICEBOLTZMANN, bounce_back_right_wall) {
-    // At x=width-2 with rank==size-1 the rightward directions (1,5,8) must
-    // be reflected to their opposites (3,7,6) at the same cell.
-//    const int width = 5, height = 5;
-//    Kokkos::View<scalar_t***> f("f", width, height, v_dim);
-//    Kokkos::View<scalar_t***> post_f("post_f", width, height, v_dim);
+TEST(LATTICEBOLTZMANN, bounce_back_right_wall)
+{
+    const int width = 5;
+    const int height = 5;
 
-    // x=width-2=3, interior y=2
-//    post_f(3, 2, 1) = 1.0;  // right
-//    post_f(3, 2, 5) = 1.0;  // right-up
-//    post_f(3, 2, 8) = 1.0;  // right-down
+    field3_t f("f", width, height, v_dim);
+    field3_t post_f("post_f", width, height, v_dim);
+    field2_t density("density", width, height);
 
-//    streaming(f, post_f, width, height, 0, 1);
+    // rank 1 of 2 => right side is the physical x-boundary
+    const int rank = 1;
+    const int size = 2;
 
-//    EXPECT_DOUBLE_EQ(f(3, 2, 3), 1.0);  // i=1 -> opposite 3
-//    EXPECT_DOUBLE_EQ(f(3, 2, 7), 1.0);  // i=5 -> opposite 7
-//    EXPECT_DOUBLE_EQ(f(3, 2, 6), 1.0);  // i=8 -> opposite 6
-    // nothing must have leaked into the ghost column
-//    EXPECT_DOUBLE_EQ(f(4, 2, 1), 0.0);
-//    EXPECT_DOUBLE_EQ(f(4, 3, 5), 0.0);
-//    EXPECT_DOUBLE_EQ(f(4, 1, 8), 0.0);
-//}
+    auto h_post_f = Kokkos::create_mirror_view(post_f);
 
-//TEST(LATTICEBOLTZMANN, bounce_back_left_wall) {
-    // At x=1 with rank==0 the leftward directions (3,6,7) must be reflected
-    // to their opposites (1,8,5) at the same cell.
-//    const int width = 5, height = 5;
-//    Kokkos::View<scalar_t***> f("f", width, height, v_dim);
-//    Kokkos::View<scalar_t***> post_f("post_f", width, height, v_dim);
+    const int x = width - 2;
 
-//    post_f(1, 2, 3) = 1.0;  // left
-//    post_f(1, 2, 6) = 1.0;  // left-up
-//    post_f(1, 2, 7) = 1.0;  // left-down
+    h_post_f(x, 2, 1) = 1.0; // right
+    h_post_f(x, 2, 5) = 2.0; // right-up
+    h_post_f(x, 2, 8) = 3.0; // right-down
 
-//    streaming(f, post_f, width, height, 0, 1);
+    Kokkos::deep_copy(post_f, h_post_f);
 
-//    EXPECT_DOUBLE_EQ(f(1, 2, 1), 1.0);  // i=3 -> opposite 1
-//    EXPECT_DOUBLE_EQ(f(1, 2, 8), 1.0);  // i=6 -> opposite 8
-//    EXPECT_DOUBLE_EQ(f(1, 2, 5), 1.0);  // i=7 -> opposite 5
-    // nothing must have leaked into the ghost column
-//    EXPECT_DOUBLE_EQ(f(0, 2, 3), 0.0);
- //   EXPECT_DOUBLE_EQ(f(0, 3, 6), 0.0);
-//    EXPECT_DOUBLE_EQ(f(0, 1, 7), 0.0);
-//}
+    streaming(
+        f, post_f, density,
+        width, height,
+        rank, size);
 
-//TEST(LATTICEBOLTZMANN, moving_wall_top_no_correction) {
-    // At y=height-1 direction i=2 (straight up, C[0][2]=0) bounces back to
-    // direction 4 with zero Galilean correction regardless of wall velocity.
-//    const int width = 5, height = 5;
-//    Kokkos::View<scalar_t***> f("f", width, height, v_dim);
-//    Kokkos::View<scalar_t***> post_f("post_f", width, height, v_dim);
+    auto h_f =
+        Kokkos::create_mirror_view_and_copy(
+            Kokkos::HostSpace{}, f);
 
-//    post_f(2, 4, 2) = 1.0;  // straight up at top row
+    // 1 -> 3
+    EXPECT_DOUBLE_EQ(h_f(x, 2, 3), 1.0);
 
-//    streaming(f, post_f, width, height, 0, 1);
+    // 5 -> 7
+    EXPECT_DOUBLE_EQ(h_f(x, 2, 7), 2.0);
 
-    // correction = 2*W[2]*C[0][2]*0.1/cs^2 = 0  (C[0][2]=0)
-//    EXPECT_DOUBLE_EQ(f(2, 4, 4), 1.0);
-//    EXPECT_DOUBLE_EQ(f(2, 5, 2), 0.0);  // must not have escaped the domain
-//}
+    // 8 -> 6
+    EXPECT_DOUBLE_EQ(h_f(x, 2, 6), 3.0);
 
-//TEST(LATTICEBOLTZMANN, moving_wall_top_with_correction) {
-    // At y=height-1 direction i=5 (right-up) bounces back to direction 7
-    // with correction: f = post_f - 2*W[5]*C[0][5]*u_wall / c_s^2
-    // u_wall = 0.1 (hardcoded), C[0][5]=+1, W[5]=1/36, c_s=0.5777
-//    const int width = 5, height = 5;
-//    Kokkos::View<scalar_t***> f("f", width, height, v_dim);
-//    Kokkos::View<scalar_t***> post_f("post_f", width, height, v_dim);
+    // Nothing may leave through right ghost column
+    EXPECT_DOUBLE_EQ(h_f(width - 1, 2, 1), 0.0);
+    EXPECT_DOUBLE_EQ(h_f(width - 1, 3, 5), 0.0);
+    EXPECT_DOUBLE_EQ(h_f(width - 1, 1, 8), 0.0);
+}
 
-//    post_f(2, 4, 5) = 1.0;  // right-up at top row
-//    post_f(2, 4, 6) = 1.0;  // left-up  at top row (C[0][6]=-1, correction flips sign)
+TEST(LATTICEBOLTZMANN, bounce_back_left_wall)
+{
+    const int width = 5;
+    const int height = 5;
 
-//    streaming(f, post_f, width, height, 0, 1);
+    field3_t f("f", width, height, v_dim);
+    field3_t post_f("post_f", width, height, v_dim);
+    field2_t density("density", width, height);
 
-    // expected for i=5: 1.0 - 2*(1/36)*1*0.1 / (0.5777^2)
-//	scalar_t c_s = 0.5777L;
-//    const scalar_t correction = 2.0 * W[5] * cx(5) * 0.1 / (c_s * c_s);
-//    EXPECT_NEAR(f(2, 4, 7), 1.0 - correction, 1e-12);  // i=5 -> opposite 7
- //   EXPECT_NEAR(f(2, 4, 8), 1.0 + correction, 1e-12);  // i=6 -> opposite 8, C[0][6]=-1
-//}
+    // rank 0 of 2 => only left side is a physical x-boundary
+    const int rank = 0;
+    const int size = 2;
+
+    auto h_post_f = Kokkos::create_mirror_view(post_f);
+
+    // Interior y-coordinate, so no top/bottom interference
+    h_post_f(1, 2, 3) = 1.0; // left
+    h_post_f(1, 2, 6) = 2.0; // left-up
+    h_post_f(1, 2, 7) = 3.0; // left-down
+
+    Kokkos::deep_copy(post_f, h_post_f);
+
+    streaming(
+        f, post_f, density,
+        width, height,
+        rank, size);
+
+    auto h_f =
+        Kokkos::create_mirror_view_and_copy(
+            Kokkos::HostSpace{}, f);
+
+    // 3 -> 1
+    EXPECT_DOUBLE_EQ(h_f(1, 2, 1), 1.0);
+
+    // 6 -> 8
+    EXPECT_DOUBLE_EQ(h_f(1, 2, 8), 2.0);
+
+    // 7 -> 5
+    EXPECT_DOUBLE_EQ(h_f(1, 2, 5), 3.0);
+
+    // Nothing may leave through the left ghost column
+    EXPECT_DOUBLE_EQ(h_f(0, 2, 3), 0.0);
+    EXPECT_DOUBLE_EQ(h_f(0, 3, 6), 0.0);
+    EXPECT_DOUBLE_EQ(h_f(0, 1, 7), 0.0);
+}
+
+TEST(LATTICEBOLTZMANN, moving_wall_top)
+{
+    const int width = 5;
+    const int height = 5;
+
+    field3_t f("f", width, height, v_dim);
+    field3_t post_f("post_f", width, height, v_dim);
+    field2_t density("density", width, height);
+
+    const int x = 2;
+    const int y = height - 1;
+
+    auto h_post_f = Kokkos::create_mirror_view(post_f);
+    auto h_density = Kokkos::create_mirror_view(density);
+
+    h_post_f(x, y, 2) = 1.0;  // straight up
+    h_post_f(x, y, 5) = 1.0;  // right-up
+    h_post_f(x, y, 6) = 1.0;  // left-up
+
+    h_density(x, y) = 1.0;
+
+    Kokkos::deep_copy(post_f, h_post_f);
+    Kokkos::deep_copy(density, h_density);
+
+    streaming(
+        f, post_f, density,
+        width, height,
+        0, 1);
+
+    auto h_f =
+        Kokkos::create_mirror_view_and_copy(
+            Kokkos::HostSpace{}, f);
+
+    constexpr scalar_t wall_velocity = 0.1;
+    constexpr scalar_t cs2 = 1.0 / 3.0;
+
+    const scalar_t correction =
+        2.0 * weight(5) * wall_velocity / cs2;
+
+    // i=2: cx(2)=0 -> no moving-wall correction
+    EXPECT_DOUBLE_EQ(
+        h_f(x, y, opposite(2)),
+        1.0);
+
+    // i=5: cx(5)=+1
+    EXPECT_NEAR(
+        h_f(x, y, opposite(5)),
+        1.0 - correction,
+        1e-14);
+
+    // i=6: cx(6)=-1 -> correction changes sign
+    EXPECT_NEAR(
+        h_f(x, y, opposite(6)),
+        1.0 + correction,
+        1e-14);
+}
 
 
 //TEST(LATTICEBOLTZMANN, mass_conservation_interior) {
