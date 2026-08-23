@@ -30,7 +30,7 @@ The implementation covers the main milestones of the HPC project:
 │   ├── main.cpp                  # small general demo
 │   ├── streaming.cpp             # streaming validation
 │   ├── relaxation.cpp            # density perturbation / collision validation
-│   ├── shareWaveDecay.cpp        # shear-wave decay experiment
+│   ├── shearWaveDecay.cpp        # shear-wave decay experiment
 │   ├── lidDrivenCavity.cpp       # lid-driven cavity benchmark
 │   ├── distributedRun.cpp        # MPI scaling + serial-reference validation
 │   └── distributedRun2D.cpp      # 2D cartesian MPI decomposition
@@ -101,32 +101,8 @@ python3 -m pip install numpy matplotlib pillow
 
 ## Build
 
-### Release build
-
-Use a Release build for simulations and benchmarks:
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
-```
-
-For development and debugging:
-
-```bash
-cmake -S . -B build-debug -DCMAKE_BUILD_TYPE=Debug
-cmake --build build-debug -j
-```
-
-### Example cluster setup
-
-On a system using environment modules, load a compiler and MPI implementation first. The exact module names depend on the cluster.
-
-For example:
-
-```bash
-module load compiler/gnu
-module load mpi/openmpi
-
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ```
@@ -166,7 +142,7 @@ Milestone 06 additionally contains explicit tests for the 2D communication path:
 Run them with four MPI processes:
 
 ```bash
-mpirun -np 4 ./build-cpu/tests/mpi_2d_tests
+mpirun -np 4 ./build/tests/mpi_2d_tests
 ```
 
 The complete 2D regression test reconstructs the global distributed field and compares it against a single-rank reference solution with a tolerance of `1e-12`.
@@ -179,7 +155,7 @@ All executables are generated in `build/executables/`.
 |---|---|---|
 | `streaming` | Validate pure propagation/streaming | 15 x 10, 30 steps |
 | `relaxation` | Density perturbation and BGK relaxation | 100 x 100, `omega = 1.9`, 61 steps |
-| `shareWaveDecay` | Shear-wave viscosity experiment | 50 x 50, `omega = 0.2`, 1000 steps |
+| `shearWaveDecay` | Shear-wave viscosity experiment | 50 x 50, `omega = 0.2`, 1000 steps |
 | `lidDrivenCavity` | Lid-driven cavity and MLUPS timing | 128 x 128, `omega = 1.7`, 10000 steps |
 | `distributedRun` | MPI strong scaling and serial validation | Default: 512 x 512, 500 steps, `omega = 1.7` |
 | `distributedRun2D` | 2D Cartesian MPI decomposition, benchmark and serial validation |
@@ -247,7 +223,7 @@ shearWaveDecay [omega] [steps] [width] [height] [epsilon] [output.csv]
 Example:
 
 ```bash
-./build-cpu/executables/shearWaveDecay \
+./build/executables/shearWaveDecay \
     1.4 1500 50 100 1e-3 \
     data/shearWaveDecay/omega_1p4.csv
 ```
@@ -275,7 +251,7 @@ The script runs several values of `omega`, determines the numerical viscosity, w
 
 
 ### 4. Lid-driven cavity
-e cavity executable accepts
+The cavity executable accepts
 
 ```text
 lidDrivenCavity [width] [height] [max_steps] [omega] [tolerance]
@@ -284,7 +260,7 @@ lidDrivenCavity [width] [height] [max_steps] [omega] [tolerance]
 Example:
 
 ```bash
-mpirun -np 1 ./build-cpu/executables/lidDrivenCavity \
+mpirun -np 1 ./build/executables/lidDrivenCavity \
     128 128 300000 1.7 1e-6
 ```
 The simulation checks the maximum change of the velocity field between consecutive time steps:
@@ -306,11 +282,12 @@ python3 visualize_lidDrivenCavity.py
 ```
 
 The lid-driven cavity executable is intended to be run with one MPI rank.
- MPI domain decomposition
+
+## 5. MPI domain decomposition
+
+### 5.1 1D decomposition: `distributedRun`
 
 Two MPI decomposition strategies are kept in the repository. The 1D version represents the initial distributed implementation, while the 2D version extends it to a Cartesian process topology.
-
-## 1D decomposition: `distributedRun`
 
 The 1D implementation decomposes the global domain only along the x-direction. Every rank owns a contiguous x-slab of physical cells and one ghost column on each side.
 
@@ -343,12 +320,12 @@ distributedRun [width] [height] [steps] [omega]
 Examples:
 
 ```bash
-mpirun -np 1 ./build-cpu/executables/distributedRun 512 512 500 1.7
-mpirun -np 2 ./build-cpu/executables/distributedRun 512 512 500 1.7
-mpirun -np 4 ./build-cpu/executables/distributedRun 512 512 500 1.7
+mpirun -np 1 ./build/executables/distributedRun 512 512 500 1.7
+mpirun -np 2 ./build/executables/distributedRun 512 512 500 1.7
+mpirun -np 4 ./build/executables/distributedRun 512 512 500 1.7
 ```
 
-## 2D Cartesian decomposition: `distributedRun2D`
+### 5.2 2D Cartesian decomposition: `distributedRun2D`
 
 The 2D implementation decomposes the global domain in both x and y. The process-grid dimensions are selected automatically with
 
@@ -434,39 +411,43 @@ Validation: OK
 
 The code reports performance in **MLUPS** (million lattice updates per second):
 
-\[
+```math
 \mathrm{MLUPS}
 = \frac{N_x N_y N_{steps}}
 {t\cdot 10^6}.
-\]
-
+```
 For strong scaling, speedup and parallel efficiency can be calculated from the measured runtimes:
-
-\[
+```math
 S(p)=\frac{T_1}{T_p},
 \qquad
 E(p)=\frac{S(p)}{p}.
-\]
-
+```
 The benchmark uses the maximum runtime over all MPI ranks so that the reported time reflects the slowest rank.
 
-## Optional CUDA / GPU build
+## On-node parallelism with Kokkos
 
-The repository currently configures the bundled Kokkos dependency with the CUDA backend disabled:
+The local LBM update is parallelized over lattice cells using Kokkos.
+Collision, streaming, initialization and reductions are implemented using
+Kokkos parallel patterns such as parallel_for and parallel_reduce.
+
+The numerical kernels are shared between CPU and accelerator builds.
+
+## CPU and CUDA backends
+
+The solver uses Kokkos for on-node parallelism. With the project's FetchContent Kokkos fallback, the backend is selected at configure time:
+
+# CPU Threads backend
 
 ```cmake
-set(Kokkos_ENABLE_CUDA OFF CACHE BOOL "Disable CUDA backend" FORCE)
-set(Kokkos_ENABLE_SERIAL ON CACHE BOOL "Enable Serial backend" FORCE)
-set(Kokkos_ENABLE_THREADS ON CACHE BOOL "Enable Threads backend" FORCE)
+cmake -S . -B build-cpu -DCMAKE_BUILD_TYPE=Release -DLBM_ENABLE_CUDA=OFF
 ```
 
-For a CUDA build, change these settings to:
+# CUDA backend
 
 ```cmake
-set(Kokkos_ENABLE_CUDA ON CACHE BOOL "Enable CUDA backend" FORCE)
-set(Kokkos_ENABLE_SERIAL ON CACHE BOOL "Enable Serial backend" FORCE)
-set(Kokkos_ENABLE_THREADS OFF CACHE BOOL "Disable Threads backend" FORCE)
+cmake -S . -B build-cuda -DCMAKE_BUILD_TYPE=Release -DLBM_ENABLE_CUDA=O
 ```
+For the fetched Kokkos configuration, the CPU path enables Kokkos_ENABLE_THREADS and disables CUDA, while the CUDA path enables Kokkos_ENABLE_CUDA and disables Threads. The MPI halo buffers are staged through host mirrors, so GPU-aware MPI is not required by the current implementation.
 
 ## Notes on reproducibility
 
