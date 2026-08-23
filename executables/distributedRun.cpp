@@ -1,3 +1,5 @@
+// MPI driver for the original 1D domain decompostion
+
 #include "saveData.h"
 #include <Kokkos_Core.hpp>
 #include <chrono>
@@ -11,6 +13,7 @@
 #include <string>
 #include <vector>
 
+//____________________________________________________________________________
 void initialize_equilibrium(field2_t density, field3_t velocity, field3_t f,
                             int width, int height) {
     Kokkos::parallel_for(
@@ -29,6 +32,7 @@ void initialize_equilibrium(field2_t density, field3_t velocity, field3_t f,
         });
 }
 
+//____________________________________________________________________________
 bool validate_against_serial(field3_t distributed_f, int global_width,
                              int height, int steps, scalar_t omega, int rank,
                              int size) {
@@ -59,7 +63,7 @@ bool validate_against_serial(field3_t distributed_f, int global_width,
 
     // Gather all local domains on rank 0
     std::vector<scalar_t> global_mpi_field;
-
+    
     if (rank == 0) {
         global_mpi_field.resize(global_width * height * v_dim);
     }
@@ -74,7 +78,7 @@ bool validate_against_serial(field3_t distributed_f, int global_width,
 
     int validation_ok = 1;
 
-    // Rank 0 computes independent serial reference
+    // Rank 0 computes independent serial reference using size=1, which disables inter-rank communication
     if (rank == 0) {
         const int serial_width = global_width + 2;
         field2_t serial_density("serial_density", serial_width, height);
@@ -85,6 +89,8 @@ bool validate_against_serial(field3_t distributed_f, int global_width,
 
         initialize_equilibrium(serial_density, serial_velocity, serial_f,
                                serial_width, height);
+        // With size=1, execute_time_step uses same LBM path without MPI
+        // neighbour communication
         for (int step = 0; step < steps; ++step) {
             execute_time_step(serial_f, serial_post_f, serial_density,
                               serial_velocity, serial_width, height, omega,
@@ -120,14 +126,15 @@ bool validate_against_serial(field3_t distributed_f, int global_width,
             }
         }
 
+        // Numerical tolerance for the element-wise regression check
         constexpr scalar_t tolerance = 1e-12;
         if (max_error > tolerance) {
             validation_ok = 0;
-            std::cout << "MPI validation FAILED\n"
+            std::cout << "MPI 1D validation FAILED\n"
                       << "Max error: " << max_error << "\nAt x=" << error_x
                       << ", y=" << error_y << ", i=" << error_i << "\n";
         } else {
-            std::cout << "MPI validation PASSED\n"
+            std::cout << "MPI 1D validation PASSED\n"
                       << "Max error: " << max_error << "\n";
         }
     }
@@ -135,6 +142,7 @@ bool validate_against_serial(field3_t distributed_f, int global_width,
     return validation_ok == 1;
 }
 
+//____________________________________________________________________________
 int main(int argc, char *argv[]) {
     // Initialize MPI
     MPI_Init(&argc, &argv);
@@ -143,11 +151,13 @@ int main(int argc, char *argv[]) {
     int rank, size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
+    // Defaults; command line: distributedRun [width] [height] [steps] [omega]
     int width = 512;
     int height = 512;
     int steps = 500;
     scalar_t omega = 1.7;
 
+    // optional command-line parameters
     try {
         if (argc > 1) {
             width = std::stoi(argv[1]);
@@ -165,8 +175,6 @@ int main(int argc, char *argv[]) {
         if (rank == 0) {
             std::cerr << "Invalid argument: " << exception.what() << '\n';
         }
-        
-
         MPI_Finalize();
         return 1;
     }
@@ -179,13 +187,16 @@ int main(int argc, char *argv[]) {
                 << "All dimensions and steps must be positive.\n"
                 << "Omega must satisfy 0 < omega < 2.\n";
         }
+        MPI_Finalize();
+        return 1;
+    }
+    // equal-size strips
     if (width % size != 0) {
-            if (rank == 0) {
-                std::cerr << "Width must be a multiple of size got: " << width
-                          << " and " << size << std::endl;
-            }
+        if (rank == 0) {
+            std::cerr << "For the 1D x-decomposition, width must be divisible "
+                      << "by the number of MPI ranks. Got width=" << width
+                      << " and ranks=" << size << ".\n";
         }
-
         MPI_Finalize();
         return 1;
     }
@@ -207,18 +218,16 @@ int main(int argc, char *argv[]) {
         field3_t post_f("post_f", local_width, height, v_dim);
         GhostBuffers ghost_buffers(height);
 
-        // Uniform equilibrium background: rho = 1, u = 0 everywhere.
-        // Includes the ghost columns (x=0, local_width-1) so the very first
-        // ghost exchange (before any streaming has run) ships real
-        // equilibrium data instead of zero-initialized garbage.
+        // Initialize owned and ghost cells consistently before the first exchange
         initialize_equilibrium(density, velocity, f, local_width, height);
 
         Kokkos::fence();
 
+        
+
+        MPI_Barrier(MPI_COMM_WORLD); // Synchronize ranks before timing
+
         // start timing
-
-        MPI_Barrier(MPI_COMM_WORLD);
-
         const double start = MPI_Wtime();
 
         for (int step = 0; step < steps; ++step) {
@@ -232,18 +241,17 @@ int main(int argc, char *argv[]) {
 
         double runtime = 0.0;
 
+        // Parallel runtime is the maximum local runtime across all ranks
         MPI_Reduce(&local_runtime, &runtime, 1, MPI_DOUBLE, MPI_MAX, 0,
                    MPI_COMM_WORLD);
 
-        // Complete the final distributed state.
-        // This is intentionally outside the timed region.
+        // Complete the final distributed state
         if (size > 1) {
             share_ghost_cells(f, local_width, height, rank, size,
                               ghost_buffers);
         }
 
-        // density/velocity currently belong to the state before the final
-        // streaming. Recompute them from the final f.
+        // Recompute macroscopic fields from the final distribution state
         calc_macroscopic(f, density, velocity, local_width, height);
 
         Kokkos::fence();
@@ -251,9 +259,11 @@ int main(int argc, char *argv[]) {
             std::cout << "Grid: " << width << " x " << height << '\n';
             std::cout << "Steps: " << steps << '\n';
             std::cout << "MPI ranks: " << size << '\n';
+            std::cout << "MPI decomposition: 1D (x-direction)\n";
             std::cout << "Omega: " << omega << '\n';
         }
-
+        
+        // Diagnostic reductions exclude ghost cells
         calc_total_mass(total_mass, density, local_width, height);
 
         calc_total_kin_energy(total_kin_energy, velocity, density, local_width,

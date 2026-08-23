@@ -10,9 +10,11 @@ The implementation covers the main milestones of the HPC project:
 - bounce-back boundary conditions
 - moving-wall boundary condition for the lid-driven cavity
 - shear-wave decay for viscosity validation
-- one-dimensional MPI domain decomposition with ghost cells
+- one-dimensional MPI decomposition in x-direction
+- two-dimensional Cartesian MPI decompositions
+- x/y halo exchange and diagonal corner communication
+- MPI-vs-serial regression validation
 - strong-scaling measurements in runtime, MLUPS, mass and kinetic energy
-- MPI-vs-serial validation
 
 ## Repository structure
 
@@ -22,17 +24,21 @@ The implementation covers the main milestones of the HPC project:
 ├── src/
 │   ├── latticeBoltzmann.cpp      # LBM kernels, boundaries, MPI halo exchange
 │   ├── latticeBoltzmann.h
-│   └── saveData.cpp              # binary output helpers
+│   ├── saveData.cpp              # binary output helpers
+|   └── saveData.h
 ├── executables/
 │   ├── main.cpp                  # small general demo
 │   ├── streaming.cpp             # streaming validation
 │   ├── relaxation.cpp            # density perturbation / collision validation
 │   ├── shareWaveDecay.cpp        # shear-wave decay experiment
 │   ├── lidDrivenCavity.cpp       # lid-driven cavity benchmark
-│   └── distributedRun.cpp        # MPI scaling + serial-reference validation
+│   ├── distributedRun.cpp        # MPI scaling + serial-reference validation
+│   └── distributedRun2D.cpp      # 2D cartesian MPI decomposition
 ├── tests/
-│   └── test_latticeBoltzmann.cpp # GoogleTest unit/regression tests
+│   ├── test_latticeBoltzmann.cpp # regular unit/regression tests
+│   ├── test_mpi_2d.cpp           # explicit 2D MPI communication tests
 ├── data/                         # generated binary simulation data
+├── plots/                        # generated milestone plots
 └── visualize_*.py               # plotting and animation scripts
 ```
 
@@ -40,35 +46,35 @@ The implementation covers the main milestones of the HPC project:
 
 The solver uses the D2Q9 lattice with nine discrete velocity directions. For every lattice cell, the macroscopic density and velocity are reconstructed from the particle distribution functions:
 
-\[
+$$
 \rho = \sum_i f_i,
 \qquad
 \mathbf{u} = \frac{1}{\rho}\sum_i f_i\mathbf{c}_i.
-\]
+$$
 
 The BGK collision step relaxes the populations towards local equilibrium:
 
-\[
+$$
 f_i^{\mathrm{post}}
 = f_i - \omega\left(f_i-f_i^{\mathrm{eq}}\right).
-\]
+$$
 
 The D2Q9 equilibrium distribution implemented in the code is
 
-\[
+```math
 f_i^{\mathrm{eq}}
 = w_i\rho\left[
 1 + 3(\mathbf{c}_i\cdot\mathbf{u})
 + \frac{9}{2}(\mathbf{c}_i\cdot\mathbf{u})^2
 - \frac{3}{2}|\mathbf{u}|^2
 \right].
-\]
+```
 
 For the BGK model in lattice units, the kinematic viscosity is related to the relaxation parameter by
 
-\[
+$$
 \nu = \frac{1}{3}\left(\frac{1}{\omega}-\frac{1}{2}\right).
-\]
+$$
 
 ## Requirements
 
@@ -82,8 +88,6 @@ For the BGK model in lattice units, the kinematic viscosity is related to the re
 - GoogleTest for the test target
 
 The top-level `CMakeLists.txt` tries to find Kokkos and Eigen first. If the requested versions are not available, CMake downloads them with `FetchContent`. GoogleTest is handled in the same way for the tests.
-
-> If you build on a machine without internet access, install the required dependencies beforehand or provide them through the cluster environment.
 
 ### Python plots
 
@@ -150,6 +154,23 @@ The test suite contains checks for, among other things:
 - equilibrium as a collision fixed point
 - bounce-back boundary conditions
 
+### 2D MPI tests
+
+Milestone 06 additionally contains explicit tests for the 2D communication path:
+
+- x-direction halo exchange
+- y-direction halo exchange
+- diagonal corner communication
+- a 2 x 2 MPI-vs-serial regression test
+
+Run them with four MPI processes:
+
+```bash
+mpirun -np 4 ./build-cpu/tests/mpi_2d_tests
+```
+
+The complete 2D regression test reconstructs the global distributed field and compares it against a single-rank reference solution with a tolerance of `1e-12`.
+
 ## Executables
 
 All executables are generated in `build/executables/`.
@@ -161,6 +182,7 @@ All executables are generated in `build/executables/`.
 | `shareWaveDecay` | Shear-wave viscosity experiment | 50 x 50, `omega = 0.2`, 1000 steps |
 | `lidDrivenCavity` | Lid-driven cavity and MLUPS timing | 128 x 128, `omega = 1.7`, 10000 steps |
 | `distributedRun` | MPI strong scaling and serial validation | Default: 512 x 512, 500 steps, `omega = 1.7` |
+| `distributedRun2D` | 2D Cartesian MPI decomposition, benchmark and serial validation |
 | `main` | Small general MPI/Kokkos demo | 9 x 6, 1000 steps |
 
 The parameters are currently set directly in the corresponding `.cpp` files rather than through command-line arguments.
@@ -216,145 +238,198 @@ The initial state consists of a uniform background with a stronger density pertu
 
 ### 3. Shear-wave decay
 
+The shear-wave executable accepts the relaxation parameter from the command line:
+
+```text
+shearWaveDecay [omega] [steps] [width] [height] [epsilon] [output.csv]
+```
+
+Example:
+
 ```bash
-mpirun -np 1 ./build/executables/shearWaveDecay
+./build-cpu/executables/shearWaveDecay \
+    1.4 1500 50 100 1e-3 \
+    data/shearWaveDecay/omega_1p4.csv
 ```
 
-With the current source settings, this produces data for `omega = 0.2`:
+The shear-wave experiment uses periodic boundary conditions. The relevant shear-mode amplitude is stored as a function of time and is fitted using
 
-```text
-data/shearWaveDecay_density.bin
-data/shearWaveDecay_velocity_02.bin
-```
+$$
+A(t)=A_0\exp(-\nu k^2t).
+$$
 
-`visualize_shearWaveDecay.py` compares simulated and theoretical viscosity for several values of `omega`. It currently expects the following velocity files:
+The numerical viscosity is then compared with
 
-```text
-shearWaveDecay_velocity_02.bin
-shearWaveDecay_velocity_04.bin
-shearWaveDecay_velocity_06.bin
-shearWaveDecay_velocity_08.bin
-shearWaveDecay_velocity_10.bin
-shearWaveDecay_velocity_12.bin
-shearWaveDecay_velocity_14.bin
-shearWaveDecay_velocity_16.bin
-shearWaveDecay_velocity_18.bin
-```
+$$
+\nu_{\mathrm{analytic}}
+= \frac{1}{3}\left(\frac{1}{\omega}-\frac{1}{2}\right).
+$$
 
-To regenerate the complete viscosity curve, change `omega` and the corresponding output suffix in `executables/shearWaveDecay.cpp`, rebuild, and rerun the executable for each value before running:
+The complete sweep over multiple relaxation parameters can be reproduced automatically with
 
 ```bash
 python3 visualize_shearWaveDecay.py
 ```
 
-The theoretical reference used by the analysis is
+The script runs several values of `omega`, determines the numerical viscosity, writes a summary CSV and creates the comparison plot in `plots/milestone4/`.
 
-```text
-nu = (1/3) * (1/omega - 1/2)
-```
 
 ### 4. Lid-driven cavity
+e cavity executable accepts
 
-```bash
-mpirun -np 1 ./build/executables/lidDrivenCavity
+```text
+lidDrivenCavity [width] [height] [max_steps] [omega] [tolerance]
 ```
 
-The program reports runtime and MLUPS for the built-in 128 x 128 problem.
-
-The moving top wall uses a lattice velocity of `u_lid = 0.1`; the remaining physical walls use bounce-back/no-slip boundary conditions.
-
-The calls that save the cavity velocity and density fields are currently commented out in `executables/lidDrivenCavity.cpp`. To regenerate the input for `visualize_lidDrivenCavity.py`, enable at least
-
-```cpp
-save_velocity(
-    velocity,
-    local_width,
-    height,
-    step,
-    steps,
-    "data/lidDrivenCavity_velocity.bin"
-);
-```
-
-then rebuild and rerun the simulation:
+Example:
 
 ```bash
-cmake --build build -j
-mpirun -np 1 ./build/executables/lidDrivenCavity
+mpirun -np 1 ./build-cpu/executables/lidDrivenCavity \
+    128 128 300000 1.7 1e-6
+```
+The simulation checks the maximum change of the velocity field between consecutive time steps:
+
+$$
+\max_{x,y}\left|\mathbf{u}^{n+1}(x,y)-\mathbf{u}^{n}(x,y)\right| < 10^{-6}.
+$$
+
+`max_steps` is only a safety limit. At the end of the run, the executable reports whether the steady-state criterion was reached and stores the final velocity field in
+
+```text
+data/lidDrivenCavity_velocity.bin
+```
+
+Generate the final streamline/velocity plot with
+
+```bash
 python3 visualize_lidDrivenCavity.py
 ```
 
-Saving every time step substantially increases I/O and is therefore intentionally disabled for the performance benchmark.
+The lid-driven cavity executable is intended to be run with one MPI rank.
+ MPI domain decomposition
 
-### 5. MPI strong scaling
+Two MPI decomposition strategies are kept in the repository. The 1D version represents the initial distributed implementation, while the 2D version extends it to a Cartesian process topology.
 
-`distributedRun` is the main MPI benchmark. Its default parameters are:
+## 1D decomposition: `distributedRun`
 
-- grid: `512 x 512`
-- time steps: `500`
-- relaxation parameter: `omega = 1.7`
-
-The executable accepts optional command-line arguments:
-
-```bash
-./distributedRun [width] [height] [steps] [omega]
-
-Example runs:
-
-```bash
-mpirun -np 1  ./build/executables/distributedRun 512 512 500 1.7
-mpirun -np 2  ./build/executables/distributedRun 512 512 500 1.7
-mpirun -np 4  ./build/executables/distributedRun 512 512 500 1.7
-mpirun -np 8  ./build/executables/distributedRun 512 512 500 1.7
-mpirun -np 16 ./build/executables/distributedRun 512 512 500 1.7
-mpirun -np 32 ./build/executables/distributedRun 512 512 500 1.7
-mpirun -np 64 ./build/executables/distributedRun 512 512 500 1.7
-
-If no arguments are given, the default values are used.
-
-[width], [height] and [steps] must be positive and the relaxation parameter must satisfy
-0 < omega < 2
-
-The global x-dimension must be divisible by the number of MPI ranks.
-
-For every run, rank 0 prints values of the form:
+The 1D implementation decomposes the global domain only along the x-direction. Every rank owns a contiguous x-slab of physical cells and one ghost column on each side.
 
 ```text
+             x direction
+
+ rank 0          rank 1          rank 2          rank 3
++---------+     +---------+     +---------+     +---------+
+|  local  |<--->|  local  |<--->|  local  |<--->|  local  |
+| domain  |     | domain  |     | domain  |     | domain  |
++---------+     +---------+     +---------+     +---------+
+   ghost           ghost           ghost           ghost
+   columns          columns         columns         columns
+```
+
+Only populations crossing a left/right process interface need MPI communication. The local x-extent therefore contains two additional ghost columns.
+
+For equal-size subdomains, the global width must be divisible by the number of MPI ranks:
+
+```text
+width % number_of_ranks == 0
+```
+
+Run syntax:
+
+```text
+distributedRun [width] [height] [steps] [omega]
+```
+
+Examples:
+
+```bash
+mpirun -np 1 ./build-cpu/executables/distributedRun 512 512 500 1.7
+mpirun -np 2 ./build-cpu/executables/distributedRun 512 512 500 1.7
+mpirun -np 4 ./build-cpu/executables/distributedRun 512 512 500 1.7
+```
+
+## 2D Cartesian decomposition: `distributedRun2D`
+
+The 2D implementation decomposes the global domain in both x and y. The process-grid dimensions are selected automatically with
+
+```cpp
+int dims[2] = {0, 0};
+MPI_Dims_create(world_size, 2, dims);
+```
+
+`MPI_Dims_create` chooses a balanced two-dimensional factorization of the available number of ranks. For example, four ranks form a `2 x 2` process grid and six ranks typically form a `3 x 2` grid.
+
+A Cartesian communicator is then created with
+
+```cpp
+int periods[2] = {0, 0};
+MPI_Cart_create(MPI_COMM_WORLD, 2, dims, periods, 0, &cart_comm);
+```
+
+The process topology is non-periodic because the global simulation domain has physical boundaries.
+
+The Cartesian coordinates of each rank are obtained with `MPI_Cart_coords`. Direct left/right and bottom/top neighbors are obtained with `MPI_Cart_shift`.
+
+```text
+                 y
+                 ^
+                 |
+        +----------------+----------------+
+        |                |                |
+        |    rank 0      |    rank 1      |
+        |                |                |
+        +----------------+----------------+
+        |                |                |
+        |    rank 2      |    rank 3      |
+        |                |                |
+        +----------------+----------------+ --> x
+```
+
+### Ghost cells
+
+Every local 2D tile contains one ghost-cell layer on all four sides:
+
+```text
++----------------------------------+
+|            top ghost             |
++-----+----------------------+-----+
+|left |                      |right|
+|ghost|    owned cells       |ghost|
+|     |                      |     |
++-----+----------------------+-----+
+|           bottom ghost            |
++----------------------------------+
+```
+
+Before populations stream across a process boundary, the required boundary populations are exchanged with the corresponding neighboring rank. This lets each rank perform the local streaming/collision update using data from adjacent subdomains.
+
+The communication buffers are staged through host mirrors before MPI communication, so the current implementation does not require GPU-aware MPI.
+
+## MPI-vs-serial validation
+
+Both distributed executables contain a serial-reference regression check.
+
+After the timed MPI section, the distributed population field is gathered on rank 0. Rank 0 independently runs the same global problem using a single-rank reference configuration. The complete population fields are then compared with a tolerance of
+
+```text
+1e-12
+```
+
+Successful runs report, for example,
+
+```text
+MPI 1D validation PASSED
+Max error: 0
 Validation: OK
-Runtime: ... s
-MLUPS: ...
-Total mass: ...
-Total kinetic energy: ...
 ```
 
-### Serial-reference validation
-
-After the timed MPI section, `distributedRun` gathers the distributed
-population field on rank 0 and runs the same solver for the complete
-domain using a single MPI rank as a reference.
-
-The distributed and single-rank population fields are compared with
-a tolerance of `1e-12`.
-
-The validation is performed outside the timed benchmark region and
-therefore does not affect the reported runtime or MLUPS.
-## MPI domain decomposition
-
-The global domain is decomposed along the x-direction. Every MPI rank owns a contiguous block plus one ghost column on either side:
+or
 
 ```text
-rank 0        rank 1        rank 2        rank 3
-+----------+ +----------+ +----------+ +----------+
-| local    | | local    | | local    | | local    |
-| domain   | | domain   | | domain   | | domain   |
-+----------+ +----------+ +----------+ +----------+
-     <-------- halo / ghost exchange -------->
+MPI 2D validation PASSED
+Max error: 0
+Validation: OK
 ```
-
-Only populations that cross an MPI interface are packed into the communication buffers. The code currently stages these buffers through host mirrors before calling `MPI_Sendrecv`, which avoids requiring GPU-aware MPI.
-
-Global mass and kinetic energy are combined across ranks with MPI reductions.
-
 ## Performance metrics
 
 The code reports performance in **MLUPS** (million lattice updates per second):
@@ -385,7 +460,7 @@ set(Kokkos_ENABLE_SERIAL ON CACHE BOOL "Enable Serial backend" FORCE)
 set(Kokkos_ENABLE_THREADS ON CACHE BOOL "Enable Threads backend" FORCE)
 ```
 
-For a CUDA build, change these settings to, for example:
+For a CUDA build, change these settings to:
 
 ```cmake
 set(Kokkos_ENABLE_CUDA ON CACHE BOOL "Enable CUDA backend" FORCE)
@@ -400,18 +475,6 @@ set(Kokkos_ENABLE_THREADS OFF CACHE BOOL "Disable Threads backend" FORCE)
 - Do not include file output or plotting inside the timed strong-scaling region.
 - Record the compiler, MPI version, Kokkos backend and hardware when reporting performance.
 - Use the same problem size and number of time steps when comparing MPI process counts.
-
-## Implementation notes
-
-- `distributedRun` supports command-line configuration of the grid size,
-  number of time steps, and relaxation parameter.
-- The milestone executables are intended primarily for single-rank
-  validation experiments, while `distributedRun` is used for MPI
-  strong-scaling measurements.
-- The shear-wave analysis compares the measured viscosity with the
-  theoretical BGK relation for several relaxation parameters.
-- Performance measurements should be performed with a Release build
-  and without file output inside the timed region.
 
 ## License
 

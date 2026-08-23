@@ -23,7 +23,7 @@ int main(int argc, char *argv[]) {
 	MPI_Comm_size(MPI_COMM_WORLD, &size);
 
 	// Initialize Kokkos
-	Kokkos::initialize(Kokkos::InitializationSettings().set_device_id(-1));
+	Kokkos::initialize();
 	{
     	// Constant parameters
     	int width = 100;

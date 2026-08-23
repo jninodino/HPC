@@ -25,3 +25,18 @@ add_test(
     NAME lattice_boltzmann_tests
     COMMAND tests
 )
+
+add_executable(mpi_2d_tests test_mpi_2d.cpp gtest_mpi_main.cpp)
+target_link_libraries(mpi_2d_tests PRIVATE lib GTest::gtest)
+target_include_directories(mpi_2d_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_test(
+    NAME mpi_2d_tests_4ranks
+    COMMAND
+        ${MPIEXEC_EXECUTABLE}
+        ${MPIEXEC_NUMPROC_FLAG} 4
+        ${MPIEXEC_PREFLAGS}
+        $<TARGET_FILE:mpi_2d_tests>
+        ${MPIEXEC_POSTFLAGS}
+)
+set_tests_properties(mpi_2d_tests_4ranks PROPERTIES PROCESSORS 4)
