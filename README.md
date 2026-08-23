@@ -434,21 +434,20 @@ The numerical kernels are shared between CPU and accelerator builds.
 
 ## CPU and CUDA backends
 
-The solver is implemented using Kokkos and can be compiled for CPU or CUDA execution.
-For CPU execution, change these settings to:
-```cmake
-set(Kokkos_ENABLE_CUDA OFF CACHE BOOL "Disable CUDA backend" FORCE)
-set(Kokkos_ENABLE_SERIAL ON CACHE BOOL "Enable Serial backend" FORCE)
-set(Kokkos_ENABLE_THREADS ON CACHE BOOL "Enable Threads backend" FORCE)
-```
+The solver uses Kokkos for on-node parallelism. With the project's FetchContent Kokkos fallback, the backend is selected at configure time:
 
-For a CUDA build, change these settings to:
+# CPU Threads backend
 
 ```cmake
-set(Kokkos_ENABLE_CUDA ON CACHE BOOL "Enable CUDA backend" FORCE)
-set(Kokkos_ENABLE_SERIAL ON CACHE BOOL "Enable Serial backend" FORCE)
-set(Kokkos_ENABLE_THREADS OFF CACHE BOOL "Disable Threads backend" FORCE)
+cmake -S . -B build-cpu -DCMAKE_BUILD_TYPE=Release -DLBM_ENABLE_CUDA=OFF
 ```
+
+# CUDA backend
+
+```cmake
+cmake -S . -B build-cuda -DCMAKE_BUILD_TYPE=Release -DLBM_ENABLE_CUDA=O
+```
+For the fetched Kokkos configuration, the CPU path enables Kokkos_ENABLE_THREADS and disables CUDA, while the CUDA path enables Kokkos_ENABLE_CUDA and disables Threads. The MPI halo buffers are staged through host mirrors, so GPU-aware MPI is not required by the current implementation.
 
 ## Notes on reproducibility
 
