@@ -410,20 +410,17 @@ Validation: OK
 
 The code reports performance in **MLUPS** (million lattice updates per second):
 
-\[
+```math
 \mathrm{MLUPS}
 = \frac{N_x N_y N_{steps}}
 {t\cdot 10^6}.
-\]
-
+```
 For strong scaling, speedup and parallel efficiency can be calculated from the measured runtimes:
-
-\[
+```math
 S(p)=\frac{T_1}{T_p},
 \qquad
 E(p)=\frac{S(p)}{p}.
-\]
-
+```
 The benchmark uses the maximum runtime over all MPI ranks so that the reported time reflects the slowest rank.
 
 ## Optional CUDA / GPU build
