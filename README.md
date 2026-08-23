@@ -101,9 +101,6 @@ python3 -m pip install numpy matplotlib pillow
 
 ## Build
 
-### Release build
-
-Use a Release build for simulations and benchmarks:
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -287,9 +284,9 @@ python3 visualize_lidDrivenCavity.py
 The lid-driven cavity executable is intended to be run with one MPI rank.
  MPI domain decomposition
 
-Two MPI decomposition strategies are kept in the repository. The 1D version represents the initial distributed implementation, while the 2D version extends it to a Cartesian process topology.
+### 5. 1D decomposition: `distributedRun`
 
-## 1D decomposition: `distributedRun`
+Two MPI decomposition strategies are kept in the repository. The 1D version represents the initial distributed implementation, while the 2D version extends it to a Cartesian process topology.
 
 The 1D implementation decomposes the global domain only along the x-direction. Every rank owns a contiguous x-slab of physical cells and one ghost column on each side.
 
@@ -327,7 +324,7 @@ mpirun -np 2 ./build/executables/distributedRun 512 512 500 1.7
 mpirun -np 4 ./build/executables/distributedRun 512 512 500 1.7
 ```
 
-## 2D Cartesian decomposition: `distributedRun2D`
+### 6. 2D Cartesian decomposition: `distributedRun2D`
 
 The 2D implementation decomposes the global domain in both x and y. The process-grid dimensions are selected automatically with
 
