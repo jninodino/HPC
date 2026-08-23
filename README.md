@@ -110,27 +110,6 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ```
 
-For development and debugging:
-
-```bash
-cmake -S . -B build-debug -DCMAKE_BUILD_TYPE=Debug
-cmake --build build-debug -j
-```
-
-### Example cluster setup
-
-On a system using environment modules, load a compiler and MPI implementation first. The exact module names depend on the cluster.
-
-For example:
-
-```bash
-module load compiler/gnu
-module load mpi/openmpi
-
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
-```
-
 ## Run the tests
 
 After compiling:
@@ -166,7 +145,7 @@ Milestone 06 additionally contains explicit tests for the 2D communication path:
 Run them with four MPI processes:
 
 ```bash
-mpirun -np 4 ./build-cpu/tests/mpi_2d_tests
+mpirun -np 4 ./build/tests/mpi_2d_tests
 ```
 
 The complete 2D regression test reconstructs the global distributed field and compares it against a single-rank reference solution with a tolerance of `1e-12`.
@@ -247,7 +226,7 @@ shearWaveDecay [omega] [steps] [width] [height] [epsilon] [output.csv]
 Example:
 
 ```bash
-./build-cpu/executables/shearWaveDecay \
+./build/executables/shearWaveDecay \
     1.4 1500 50 100 1e-3 \
     data/shearWaveDecay/omega_1p4.csv
 ```
@@ -284,7 +263,7 @@ lidDrivenCavity [width] [height] [max_steps] [omega] [tolerance]
 Example:
 
 ```bash
-mpirun -np 1 ./build-cpu/executables/lidDrivenCavity \
+mpirun -np 1 ./build/executables/lidDrivenCavity \
     128 128 300000 1.7 1e-6
 ```
 The simulation checks the maximum change of the velocity field between consecutive time steps:
@@ -343,9 +322,9 @@ distributedRun [width] [height] [steps] [omega]
 Examples:
 
 ```bash
-mpirun -np 1 ./build-cpu/executables/distributedRun 512 512 500 1.7
-mpirun -np 2 ./build-cpu/executables/distributedRun 512 512 500 1.7
-mpirun -np 4 ./build-cpu/executables/distributedRun 512 512 500 1.7
+mpirun -np 1 ./build/executables/distributedRun 512 512 500 1.7
+mpirun -np 2 ./build/executables/distributedRun 512 512 500 1.7
+mpirun -np 4 ./build/executables/distributedRun 512 512 500 1.7
 ```
 
 ## 2D Cartesian decomposition: `distributedRun2D`
