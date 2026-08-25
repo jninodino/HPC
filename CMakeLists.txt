@@ -15,21 +15,21 @@ if(MPI_CXX_FOUND)
     message(STATUS "MPI found")
 endif()
 
-# find_package(Eigen3 5.0.1)
-# if(NOT Eigen3_FOUND)
-#     include(FetchContent)
-#     FetchContent_Declare(
-#       eigen3
-#       URL https://gitlab.com/libeigen/eigen/-/archive/5.0.1/eigen-5.0.1.tar.gz
-#     )
-#     set(BUILD_TESTING OFF CACHE BOOL "Disable Eigen tests" FORCE)
-#     set(EIGEN_BUILD_DOC OFF CACHE BOOL "Disable Eigen docs" FORCE)
-#     set(EIGEN_BUILD_TESTING OFF CACHE BOOL "Disable Eigen tests" FORCE)
-#     FetchContent_MakeAvailable(eigen3)
-#     if(NOT TARGET Eigen3::Eigen)
-#         add_library(Eigen3::Eigen ALIAS eigen)
-#     endif()
-# endif()
+find_package(Eigen3 5.0.1)
+if(NOT Eigen3_FOUND)
+    include(FetchContent)
+    FetchContent_Declare(
+      eigen3
+      URL https://gitlab.com/libeigen/eigen/-/archive/5.0.1/eigen-5.0.1.tar.gz
+    )
+    set(BUILD_TESTING OFF CACHE BOOL "Disable Eigen tests" FORCE)
+    set(EIGEN_BUILD_DOC OFF CACHE BOOL "Disable Eigen docs" FORCE)
+    set(EIGEN_BUILD_TESTING OFF CACHE BOOL "Disable Eigen tests" FORCE)
+    FetchContent_MakeAvailable(eigen3)
+    if(NOT TARGET Eigen3::Eigen)
+        add_library(Eigen3::Eigen ALIAS eigen)
+    endif()
+endif()
 
 find_package(Kokkos 4.7.03 EXACT)
 if(NOT Kokkos_FOUND)

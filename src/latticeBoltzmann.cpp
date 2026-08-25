@@ -20,22 +20,6 @@ scalar_t total_mass(field3_t f, int width, int height) {
 }
 
 //____________________________________________________________________________
-scalar_t checksum(field3_t f, int width, int height) {
-    scalar_t result = 0.0;
-
-    Kokkos::parallel_reduce(
-        "checksum",
-        Kokkos::MDRangePolicy<Kokkos::Rank<3>>({1, 0, 0},
-                                               {width - 1, height, v_dim}),
-        KOKKOS_LAMBDA(const int x, const int y, const int i, scalar_t &sum) {
-            sum += f(x, y, i) * (1.0 + 0.001 * x + 0.00001 * y + 0.0000001 * i);
-        },
-        result);
-
-    return result;
-}
-
-//____________________________________________________________________________
 void calc_density(field3_t f, field2_t density, int width, int height) {
     Kokkos::parallel_for(
         "density",
